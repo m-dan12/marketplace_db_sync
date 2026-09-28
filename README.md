@@ -2,10 +2,10 @@
 
 Ежедневный сбор аналитики Ozon/Wildberries/SelSup (остатки, заказы,
 продажи) в Postgres — аналог существующего
-`MarketplaceGateway/scripts/nightly_export.py` на сервере `ozon-server`,
+`MarketplaceGateway/scripts/nightly_export.py` на сервере компании,
 но пишет в базу данных вместо xlsx-файлов на Google Drive.
 
-Будет работать на `ozon-server` (100.104.20.51) по расписанию (Windows
+Будет работать на сервере компании (100.104.20.51) по расписанию (Windows
 Task Scheduler), рядом с существующей автоматизацией — не заменяет и не
 меняет `nightly_export.py` (он остаётся в `reference/`, только для
 справки по API-контрактам, см. `reference/README.md`).
