@@ -70,8 +70,8 @@ class SelsupStocksSource:
         for i in range(0, len(ids), _ORG_LOOKUP_BATCH_SIZE):
             chunk = ids[i : i + _ORG_LOOKUP_BATCH_SIZE]
             response = request_with_retry(
-                client, "POST", f"{SELSUP_BASE}/api/product/find",
-                headers=headers, json={"ids": chunk, "limit": _ORG_LOOKUP_BATCH_SIZE},
+                client, "GET", f"{SELSUP_BASE}/api/product/find",
+                headers=headers, params={"ids": chunk, "limit": _ORG_LOOKUP_BATCH_SIZE},
             )
             for row in response.json().get("rows", []):
                 org_map[row.get("id")] = row.get("organizationId")
