@@ -192,6 +192,28 @@ Selsup — отдельный файл на 400 тыс. строк). Повто�
 включения ночного `sync`**: он пишет в те же таблицы, а за один и тот же
 день ночной синк и бэкфилл перезаписывают друг друга по ключу, не дублируя.
 
+## История из API: поставки, акции, воронка (после первого деплоя)
+
+Ночной `sync` читает короткие окна, поэтому историю надо загрузить один раз:
+
+```bash
+python -m interface.cli.main api-backfill ozon_supplies
+python -m interface.cli.main api-backfill wb_supplies
+python -m interface.cli.main api-backfill wb_promotions
+python -m interface.cli.main backfill --kinds ozon_warehouse_stocks
+```
+
+Воронка WB отдаёт 3 запроса в минуту на кабинет, поэтому полугодие занимает
+часы. `api-backfill wb_funnel --from 2026-01-01 [--account A]` идёт по дням от
+новых к старым и пропускает уже загруженные, так что его можно прерывать и
+запускать заново. Три кабинета запускают тремя параллельными процессами (лимит
+WB считается на токен) — на сервере это разовая задача планировщика
+`MarketplaceDbSyncFunnelBackfill`, логи в `logsunnel_backfill_<кабинет>.log`.
+
+Доставка кода на сервер, если `git pull` на нём не работает: на этой машине
+`git bundle create b.bundle <старый_коммит>..master`, `scp` файла на сервер,
+затем `git pull --ff-only b.bundle master` в папке проекта.
+
 ## Если что-то пошло не так
 
 - `RuntimeError: missing env var ...` — значит забыли вписать какой-то
