@@ -72,6 +72,10 @@ KINDS: tuple[Kind, ...] = (
     Kind("ozon_stocks", "Ozon", ("Остатки",), xlsx.parse_ozon_stocks, "ozon_stock", "snapshot", sheet="Остатки"),
     Kind("ozon_prices", "Ozon", ("Цены",), xlsx.parse_ozon_prices, "ozon_price", "snapshot"),
     Kind(
+        "ozon_warehouse_stocks", "Ozon", ("Остатки",), xlsx.parse_ozon_warehouse_stocks,
+        "ozon_warehouse_stock", "snapshot", sheet="Остатки по складам FBO",
+    ),
+    Kind(
         "ozon_orders", "Ozon", ("Заказы (30 дней)", "Заказы (предыдущие 30 дней)"),
         xlsx.parse_ozon_orders, "ozon_order", "upsert", sparse=True,
     ),
@@ -94,6 +98,7 @@ class Repos:
     wb_sale: Any
     ozon_stock: Any
     ozon_price: Any
+    ozon_warehouse_stock: Any
     ozon_order: Any
     selsup_stock: Any
     selsup_movement: Any
@@ -135,8 +140,15 @@ def _require_parsed(file: DriveFile, rows: list, lines: list) -> None:
         raise ValueError(f"0 of {len(rows)} rows recognised in {file.name!r} (format changed?)")
 
 
-def _file_key(file: DriveFile) -> str:
-    return f"{file.id}:{file.modified_time.isoformat()}"
+# Kinds loaded before one file could feed two kinds keep the original key;
+# kinds added later (they share a file with an older kind) are prefixed with
+# their name so that they are not mistaken for "already loaded".
+_LEGACY_KEY_KINDS = frozenset(ALL_KIND_NAMES) - {"ozon_warehouse_stocks"}
+
+
+def _file_key(file: DriveFile, kind: str = "") -> str:
+    base = f"{file.id}:{file.modified_time.isoformat()}"
+    return base if not kind or kind in _LEGACY_KEY_KINDS else f"{kind}|{base}"
 
 
 def _snapshot_date(file: DriveFile) -> date:
@@ -215,7 +227,7 @@ class DriveArchiveBackfill:
                     report.results.append(self._load_file(kind, account, file, loaded))
 
     def _load_file(self, kind: Kind, account: str, file: DriveFile, loaded: set[str]) -> FileResult:
-        key = _file_key(file)
+        key = _file_key(file, kind.name)
         if key in loaded:
             return FileResult(kind.name, account, file.name, 0, "skipped")
         try:

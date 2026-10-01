@@ -14,6 +14,7 @@ from domain.models import (
     OzonOrderLine,
     OzonPriceLine,
     OzonStockLine,
+    OzonWarehouseStockLine,
     SelsupMovementLine,
     SelsupStockLine,
     WbAdStatLine,
@@ -288,6 +289,23 @@ def parse_ozon_prices(rows: Iterable[Row]) -> list[OzonPriceLine]:
         )
         for r in rows
         if r.get("offer_id")
+    ]
+
+
+def parse_ozon_warehouse_stocks(rows: Iterable[Row]) -> list[OzonWarehouseStockLine]:
+    """Sheet `Остатки по складам FBO` of the Ozon stock export."""
+    return [
+        OzonWarehouseStockLine(
+            offer_id=to_str(r["offer_id"]),
+            sku=to_int(r.get("sku")),
+            product_name=to_str(r.get("товар")),
+            warehouse_name=to_str(r["склад"]),
+            free_to_sell=to_int(r.get("доступно")),
+            reserved=to_int(r.get("резерв")),
+            promised=to_int(r.get("в пути")),
+        )
+        for r in rows
+        if r.get("offer_id") and r.get("склад")
     ]
 
 

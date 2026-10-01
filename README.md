@@ -70,13 +70,23 @@ cp .env.example .env   # заполнить реальными секретам�
 python -m interface.cli.main sync <wb|ozon|selsup|all> [--account <name|all>]
 python -m interface.cli.main status [--limit N]
 python -m interface.cli.main backfill [--kinds K ...] [--account A] [--force] [--orders-mode sparse|all] [--max-files N]
+python -m interface.cli.main api-backfill <wb_supplies|ozon_supplies|wb_promotions|wb_funnel> [--account A] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
 python -m interface.cli.main refresh-dims
 python -m interface.cli.main coverage
 ```
 
 `sync` каждую ночь собирает остатки (WB, Ozon, Selsup), заказы и продажи,
 а также **цены** (WB, Ozon), **рекламу WB** (последние 7 дней, апсертом) и
-**движения Selsup** (приёмки/отгрузки за последние 3 дня).
+**движения Selsup** (приёмки/отгрузки за последние 3 дня), а также:
+
+- **поставки на маркетплейсы** (`supplies`, `supply_items`): FBW WB и FBO Ozon —
+  что, когда и на какой склад отвезли; метки для «куда везти» и товар «в пути»;
+- **воронка WB** (`wb_funnel_daily`): открытия карточки, корзина, заказы,
+  выкупы, рейтинг по товару и дню (последние 3 дня каждую ночь);
+- **акции** (`promotions`, `promotion_items`): календарь WB и акции Ozon с
+  участвующими товарами; у Ozon API отдаёт только текущие, история копится с
+  первой ночи;
+- **остатки Ozon FBO по складам** (`ozon_warehouse_stocks`).
 
 `sync` тянет фиксированное окно данных и делает upsert; схема Postgres
 (`infrastructure/persistence/postgres/schema.sql`) применяется
@@ -108,16 +118,27 @@ python -m interface.cli.main coverage
 
 `coverage` показывает диапазон дат, число дней и строк по каждой таблице.
 
+**История из API** (`api-backfill`): `wb_supplies` и `ozon_supplies` — вся
+история поставок; `wb_promotions` — календарь акций с января и состав
+«ручных» акций; `wb_funnel` — воронка по дням от новых к старым (WB отдаёт
+3 запроса в минуту, поэтому полугодие занимает часы; прогон возобновляется —
+загруженные дни пропускаются). Остатки Ozon по складам за прошлые дни
+берутся из архива Drive (`backfill --kinds ozon_warehouse_stocks`).
+
 ### Ограничения
 
-- Часть ночных загрузок (цены, реклама, движения Selsup) написана по
-  контрактам из `reference/nightly_export.py` и проверена на разборе ответов,
-  но не на живом API (на этой машине нет ключей). Проверьте первый ночной
-  прогон командой `status`.
+- Загрузки проверены на живых API: Selsup (остатки, движения), Ozon (заказы,
+  остатки, цены, поставки, акции, остатки по складам) и WB кабинета Milky
+  Garden (заказы, продажи, остатки, цены, реклама, поставки, акции, воронка).
+  Кабинеты Сказка и Timeless на WB впервые пройдут в ночном прогоне — после него
+  смотрите `status`.
 - У движений Selsup нет кабинета: он определяется в представлении
   `selsup_movements_v` по остаткам (`sku_id` → account).
-- «Остатки по складам FBO» Ozon (второй лист выгрузки) в базу не попадают:
-  в модели `ozon_stocks` нет разреза по складам.
+- **Трафик Ozon недоступен**: `analytics/data` считает все метрики, кроме заказов
+  и выручки, устаревшими (показы и корзина требуют другого доступа). Воронка есть
+  только у WB.
+- У автоакций WB нет списка товаров (API отвечает 422): сохраняется только
+  сама акция.
 
 ## Тесты
 

@@ -30,12 +30,18 @@ from infrastructure.persistence.postgres.repositories import (
 )
 from infrastructure.sources.ozon.orders import OzonOrdersSource
 from infrastructure.sources.ozon.prices import OzonPricesSource
+from infrastructure.sources.ozon.promotions import OzonActionsSource
+from infrastructure.sources.ozon.supplies import OzonSuppliesSource
+from infrastructure.sources.ozon.warehouse_stocks import OzonWarehouseStocksSource
 from infrastructure.sources.ozon.stocks import OzonStocksSource
 from infrastructure.sources.selsup.movements import SelsupMovementsSource
 from infrastructure.sources.selsup.stocks import SelsupStocksSource
 from infrastructure.sources.wb.ads import WBAdsSource
+from infrastructure.sources.wb.funnel import WBFunnelSource
 from infrastructure.sources.wb.orders import WBOrdersSource
 from infrastructure.sources.wb.prices import WBPricesSource
+from infrastructure.sources.wb.promotions import WBPromotionsSource
+from infrastructure.sources.wb.supplies import WBSuppliesSource
 from infrastructure.sources.wb.sales import WBSalesSource
 from infrastructure.sources.wb.stocks import WBStocksSource
 from infrastructure.persistence.postgres.repositories_ml import (
@@ -43,6 +49,12 @@ from infrastructure.persistence.postgres.repositories_ml import (
     PostgresSelsupMovementRepository,
     PostgresWbAdStatRepository,
     PostgresWbPriceRepository,
+)
+from infrastructure.persistence.postgres.repositories_supply_demand import (
+    PostgresOzonWarehouseStockRepository,
+    PostgresPromotionRepository,
+    PostgresSupplyRepository,
+    PostgresWbFunnelRepository,
 )
 from interface.cli import ml_commands
 
@@ -76,6 +88,9 @@ def _sync_wb(conn: psycopg.Connection, accounts: list[str]) -> None:
     stock_repo = PostgresWbStockRepository(conn)
     price_repo = PostgresWbPriceRepository(conn)
     ad_repo = PostgresWbAdStatRepository(conn)
+    supply_repo = PostgresSupplyRepository(conn)
+    promo_repo = PostgresPromotionRepository(conn)
+    funnel_repo = PostgresWbFunnelRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         api_key = cfg.resolve_wb_api_key(account)
@@ -84,18 +99,28 @@ def _sync_wb(conn: psycopg.Connection, accounts: list[str]) -> None:
         _run(SyncStocksUseCase("wb_stocks", WBStocksSource(api_key), stock_repo, sync_run_repo), account)
         _run(SyncStocksUseCase("wb_prices", WBPricesSource(api_key), price_repo, sync_run_repo), account)
         _run(SyncOrdersUseCase("wb_ads", WBAdsSource(api_key), ad_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("wb_supplies", WBSuppliesSource(api_key), supply_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("wb_promotions", WBPromotionsSource(api_key), promo_repo, sync_run_repo), account)
+        # The funnel endpoint allows 3 requests a minute, so it goes last.
+        _run(SyncOrdersUseCase("wb_funnel", WBFunnelSource(api_key), funnel_repo, sync_run_repo), account)
 
 
 def _sync_ozon(conn: psycopg.Connection, accounts: list[str]) -> None:
     order_repo = PostgresOzonOrderRepository(conn)
     stock_repo = PostgresOzonStockRepository(conn)
     price_repo = PostgresOzonPriceRepository(conn)
+    warehouse_repo = PostgresOzonWarehouseStockRepository(conn)
+    supply_repo = PostgresSupplyRepository(conn)
+    promo_repo = PostgresPromotionRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         client_id, api_key = cfg.resolve_ozon_credentials(account)
         _run(SyncOrdersUseCase("ozon_orders", OzonOrdersSource(client_id, api_key), order_repo, sync_run_repo), account)
         _run(SyncStocksUseCase("ozon_stocks", OzonStocksSource(client_id, api_key), stock_repo, sync_run_repo), account)
         _run(SyncStocksUseCase("ozon_prices", OzonPricesSource(client_id, api_key), price_repo, sync_run_repo), account)
+        _run(SyncStocksUseCase("ozon_warehouse_stocks", OzonWarehouseStocksSource(client_id, api_key), warehouse_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("ozon_supplies", OzonSuppliesSource(client_id, api_key), supply_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("ozon_promotions", OzonActionsSource(client_id, api_key), promo_repo, sync_run_repo), account)
 
 
 def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:

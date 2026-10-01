@@ -167,3 +167,105 @@ class SelsupMovementLine:
     cell_name: Optional[str]
     quantity: float
     user_id: Optional[int]
+
+
+@dataclass(frozen=True)
+class SupplyLine:
+    """One shipment to a marketplace warehouse (WB FBW supply / Ozon FBO supply)."""
+    marketplace: str  # 'wb' | 'ozon'
+    supply_key: str
+    order_id: Optional[str]  # WB preorderID / Ozon order id
+    created_at: Optional[datetime]
+    planned_date: Optional[datetime]
+    fact_date: Optional[datetime]
+    updated_at: Optional[datetime]
+    status: Optional[str]
+    warehouse_name: Optional[str]
+    actual_warehouse_name: Optional[str]
+    transit_warehouse_name: Optional[str]
+    is_crossdock: Optional[bool]
+    quantity: Optional[float]
+    accepted_quantity: Optional[float]
+    ready_for_sale_quantity: Optional[float]
+
+
+@dataclass(frozen=True)
+class SupplyItemLine:
+    item_key: str  # barcode, else sku/article — unique inside one supply
+    article: Optional[str]
+    nm_id: Optional[int]
+    sku: Optional[int]
+    barcode: Optional[str]
+    tech_size: Optional[str]
+    quantity: Optional[float]
+    accepted_quantity: Optional[float]
+    ready_for_sale_quantity: Optional[float]
+
+
+@dataclass(frozen=True)
+class SupplyBundle:
+    supply: SupplyLine
+    items: tuple[SupplyItemLine, ...]
+
+
+@dataclass(frozen=True)
+class WbFunnelLine:
+    """WB sales funnel for one product on one day (card opens -> cart -> order -> buyout)."""
+    day: date
+    nm_id: int
+    vendor_code: Optional[str]
+    subject_name: Optional[str]
+    open_count: Optional[int]
+    cart_count: Optional[int]
+    order_count: Optional[int]
+    order_sum: Optional[float]
+    buyout_count: Optional[int]
+    buyout_sum: Optional[float]
+    cancel_count: Optional[int]
+    cancel_sum: Optional[float]
+    add_to_wishlist: Optional[int]
+    product_rating: Optional[float]
+    feedback_rating: Optional[float]
+
+
+@dataclass(frozen=True)
+class PromotionLine:
+    marketplace: str
+    promo_id: str
+    name: Optional[str]
+    promo_type: Optional[str]
+    start_at: Optional[datetime]
+    end_at: Optional[datetime]
+    description: Optional[str]
+    potential_count: Optional[int]
+    participating_count: Optional[int]
+    discount_type: Optional[str]
+    discount_value: Optional[float]
+
+
+@dataclass(frozen=True)
+class PromotionItemLine:
+    item_id: int  # WB nm_id / Ozon product_id
+    in_action: bool
+    price: Optional[float]
+    plan_price: Optional[float]
+    discount: Optional[float]
+    plan_discount: Optional[float]
+    stock: Optional[float]
+
+
+@dataclass(frozen=True)
+class PromotionBundle:
+    promotion: PromotionLine
+    items: tuple[PromotionItemLine, ...]
+
+
+@dataclass(frozen=True)
+class OzonWarehouseStockLine:
+    offer_id: str
+    sku: Optional[int]
+    product_name: Optional[str]
+    warehouse_name: str
+    free_to_sell: Optional[int]
+    reserved: Optional[int]
+    promised: Optional[int]

@@ -367,3 +367,178 @@ SELECT account, article,
 FROM article_stock_daily
 WHERE snapshot_date > (SELECT MAX(snapshot_date) FROM stock_days) - 30
 GROUP BY account, article;
+
+-- ===========================================================================
+-- Group 1 of the data wishlist: supplies, sales funnel, promotions, Ozon FBO
+-- stock by warehouse.
+-- ===========================================================================
+
+-- Shipments to marketplace warehouses: the labels for "where do we send the
+-- batch" and the stock in transit. One row per supply; its items are replaced
+-- wholesale each time the supply is re-read (the content changes until accepted).
+CREATE TABLE IF NOT EXISTS supplies (
+    id BIGSERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    account TEXT NOT NULL,
+    supply_key TEXT NOT NULL,
+    order_id TEXT,
+    created_at TIMESTAMPTZ,
+    planned_date TIMESTAMPTZ,
+    fact_date TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    status TEXT,
+    warehouse_name TEXT,
+    actual_warehouse_name TEXT,
+    transit_warehouse_name TEXT,
+    is_crossdock BOOLEAN,
+    quantity NUMERIC,
+    accepted_quantity NUMERIC,
+    ready_for_sale_quantity NUMERIC,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (marketplace, account, supply_key)
+);
+CREATE INDEX IF NOT EXISTS ix_supplies_created ON supplies (marketplace, created_at);
+
+CREATE TABLE IF NOT EXISTS supply_items (
+    id BIGSERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    account TEXT NOT NULL,
+    supply_key TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    article TEXT,
+    nm_id BIGINT,
+    sku BIGINT,
+    barcode TEXT,
+    tech_size TEXT,
+    quantity NUMERIC,
+    accepted_quantity NUMERIC,
+    ready_for_sale_quantity NUMERIC,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (marketplace, account, supply_key, item_key)
+);
+CREATE INDEX IF NOT EXISTS ix_supply_items_article ON supply_items (article);
+
+-- WB sales funnel per product and day (card opens, cart, orders, buyouts,
+-- ratings). `wb_funnel_days` remembers which days were loaded (resumable backfill).
+CREATE TABLE IF NOT EXISTS wb_funnel_daily (
+    id BIGSERIAL PRIMARY KEY,
+    account TEXT NOT NULL,
+    day DATE NOT NULL,
+    nm_id BIGINT NOT NULL,
+    vendor_code TEXT,
+    subject_name TEXT,
+    open_count INT,
+    cart_count INT,
+    order_count INT,
+    order_sum NUMERIC,
+    buyout_count INT,
+    buyout_sum NUMERIC,
+    cancel_count INT,
+    cancel_sum NUMERIC,
+    add_to_wishlist INT,
+    product_rating NUMERIC,
+    feedback_rating NUMERIC,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (account, day, nm_id)
+);
+CREATE INDEX IF NOT EXISTS ix_wb_funnel_daily_account_day ON wb_funnel_daily (account, day);
+
+CREATE TABLE IF NOT EXISTS wb_funnel_days (
+    account TEXT NOT NULL,
+    day DATE NOT NULL,
+    rows_loaded INT NOT NULL,
+    loaded_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (account, day)
+);
+
+-- Promotions. Ozon's API only lists current/upcoming actions, so rows are
+-- never deleted: the history accumulates from the first night on.
+CREATE TABLE IF NOT EXISTS promotions (
+    id BIGSERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    account TEXT NOT NULL,
+    promo_id TEXT NOT NULL,
+    name TEXT,
+    promo_type TEXT,
+    start_at TIMESTAMPTZ,
+    end_at TIMESTAMPTZ,
+    description TEXT,
+    potential_count INT,
+    participating_count INT,
+    discount_type TEXT,
+    discount_value NUMERIC,
+    first_seen_date DATE NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (marketplace, account, promo_id)
+);
+
+CREATE TABLE IF NOT EXISTS promotion_items (
+    id BIGSERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    account TEXT NOT NULL,
+    promo_id TEXT NOT NULL,
+    item_id BIGINT NOT NULL,  -- WB nm_id / Ozon product_id
+    in_action BOOLEAN NOT NULL,
+    price NUMERIC,
+    plan_price NUMERIC,
+    discount NUMERIC,
+    plan_discount NUMERIC,
+    stock NUMERIC,
+    first_seen_date DATE NOT NULL,
+    last_seen_date DATE NOT NULL,
+    UNIQUE (marketplace, account, promo_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS ix_promotion_items_item ON promotion_items (marketplace, account, item_id);
+
+-- Ozon FBO stock by warehouse (report "Остатки по складам FBO"), daily snapshot.
+CREATE TABLE IF NOT EXISTS ozon_warehouse_stocks (
+    id BIGSERIAL PRIMARY KEY,
+    account TEXT NOT NULL,
+    snapshot_date DATE NOT NULL,
+    offer_id TEXT NOT NULL,
+    sku BIGINT,
+    product_name TEXT,
+    warehouse_name TEXT NOT NULL,
+    free_to_sell INT,
+    reserved INT,
+    promised INT,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (account, snapshot_date, offer_id, warehouse_name)
+);
+CREATE INDEX IF NOT EXISTS ix_ozon_wh_stocks_account_date ON ozon_warehouse_stocks (account, snapshot_date);
+
+-- Supply content together with its header (article = WB vendorCode / Ozon offer_id).
+CREATE OR REPLACE VIEW supply_items_v AS
+SELECT s.marketplace, s.account, s.supply_key, s.order_id, s.created_at, s.planned_date,
+       s.fact_date, s.status, s.warehouse_name, s.actual_warehouse_name, s.is_crossdock,
+       i.article, i.nm_id, i.sku, i.barcode, i.tech_size,
+       i.quantity, i.accepted_quantity, i.ready_for_sale_quantity
+FROM supplies s
+JOIN supply_items i USING (marketplace, account, supply_key);
+
+-- Promotion participation with the article resolved (WB: nm_id via the price
+-- snapshots; Ozon: product_id via the stock snapshots).
+DROP VIEW IF EXISTS promotion_items_v;
+CREATE VIEW promotion_items_v AS
+SELECT p.marketplace, p.account, p.promo_id, p.name, p.promo_type, p.start_at, p.end_at,
+       i.item_id, COALESCE(w.vendor_code, o.offer_id) AS article, i.in_action, i.price,
+       i.plan_price, i.discount, i.plan_discount, i.stock, i.first_seen_date, i.last_seen_date
+FROM promotions p
+JOIN promotion_items i USING (marketplace, account, promo_id)
+LEFT JOIN (SELECT DISTINCT ON (account, nm_id) account, nm_id, vendor_code
+           FROM wb_prices WHERE vendor_code IS NOT NULL
+           ORDER BY account, nm_id, snapshot_date DESC) w
+       ON p.marketplace = 'wb' AND w.account = i.account AND w.nm_id = i.item_id
+LEFT JOIN (SELECT DISTINCT ON (account, product_id) account, product_id, offer_id
+           FROM ozon_stocks WHERE product_id IS NOT NULL
+           ORDER BY account, product_id, snapshot_date DESC) o
+       ON p.marketplace = 'ozon' AND o.account = i.account AND o.product_id = i.item_id;
+
+-- Daily funnel conversion per product (the demand-side explanation of sales).
+CREATE OR REPLACE VIEW wb_funnel_rates_v AS
+SELECT account, day, nm_id, vendor_code, open_count, cart_count, order_count, buyout_count,
+       order_count::numeric / NULLIF(open_count, 0) AS open_to_order,
+       cart_count::numeric / NULLIF(open_count, 0) AS open_to_cart,
+       order_count::numeric / NULLIF(cart_count, 0) AS cart_to_order,
+       buyout_count::numeric / NULLIF(order_count, 0) AS order_to_buyout
+FROM wb_funnel_daily;

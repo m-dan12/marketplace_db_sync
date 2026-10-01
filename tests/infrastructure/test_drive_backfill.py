@@ -76,7 +76,7 @@ def make_repos() -> Repos:
     return Repos(
         wb_stock=FakeSnapshotRepo(), wb_price=FakeSnapshotRepo(), wb_ad=FakeUpsertRepo(),
         wb_order=FakeUpsertRepo(), wb_sale=FakeUpsertRepo(), ozon_stock=FakeSnapshotRepo(),
-        ozon_price=FakeSnapshotRepo(), ozon_order=FakeUpsertRepo(), selsup_stock=FakeSnapshotRepo(),
+        ozon_price=FakeSnapshotRepo(), ozon_warehouse_stock=FakeSnapshotRepo(), ozon_order=FakeUpsertRepo(), selsup_stock=FakeSnapshotRepo(),
         selsup_movement=FakeUpsertRepo(), backfill=FakeBackfillRepo(),
     )
 
@@ -219,3 +219,29 @@ def test_selsup_old_stock_files_are_attributed_through_the_newest_file_with_orga
 
     saved = {(account, day): [line.quantity for line in lines] for account, day, lines in repos.selsup_stock.saved}
     assert saved == {("timeless", date(2026, 9, 6)): [2.0], ("timeless", date(2026, 9, 21)): [4.0]}
+
+
+def test_a_file_can_feed_two_kinds_the_second_is_not_mistaken_for_loaded():
+    """`Остатки` of Ozon feeds ozon_stocks (legacy key) and ozon_warehouse_stocks
+    (prefixed key): loading one must not mark the other as done."""
+    drive, repos = FakeDrive(), make_repos()
+    drive.folder("root", "oz", "Ozon")
+    drive.folder("oz", "cab1", "Кабинет 1 (Профтекс)")
+    data = make_xlsx({
+        "Остатки": [["offer_id", "product_id", "type", "present", "reserved", "sku"], ["A", 1, "fbo", 3, 0, 9]],
+        "Остатки по складам FBO": [
+            ["offer_id", "sku", "товар", "склад", "доступно", "резерв", "в пути"], ["A", 9, "n", "ХОРУГВИНО_РФЦ", 3, 1, 2],
+        ],
+    })
+    drive.file("cab1", "f1", "Остатки.xlsx", data, utc(30))
+    backfill = DriveArchiveBackfill(drive, repos, "root", {})
+
+    backfill.run(kinds={"ozon_stocks"})
+    assert len(repos.ozon_stock.saved) == 1 and repos.ozon_warehouse_stock.saved == []
+
+    second = backfill.run(kinds={"ozon_stocks", "ozon_warehouse_stocks"})
+    totals = second.totals()
+    assert totals["ozon_stocks"]["skipped"] == 1  # already loaded under its legacy key
+    assert totals["ozon_warehouse_stocks"]["files"] == 1
+    [(account, day, lines)] = repos.ozon_warehouse_stock.saved
+    assert (account, lines[0].warehouse_name, lines[0].free_to_sell, lines[0].promised) == ("skazka", "ХОРУГВИНО_РФЦ", 3, 2)

@@ -13,27 +13,6 @@ from infrastructure.sources.wb import ads as wb_ads
 from infrastructure.sources.wb import prices as wb_prices
 
 
-@pytest.fixture()
-def fake_http(monkeypatch):
-    """Route every `httpx.Client` created by the given module through a handler."""
-    real_client = httpx.Client
-    requests: list[httpx.Request] = []
-
-    def install(module, handler):
-        def recording(request: httpx.Request) -> httpx.Response:
-            requests.append(request)
-            return handler(request)
-
-        def factory(*args, **kwargs):
-            kwargs["transport"] = httpx.MockTransport(recording)
-            return real_client(*args, **kwargs)
-
-        monkeypatch.setattr(module.httpx, "Client", factory)
-
-    install.requests = requests
-    return install
-
-
 def test_wb_prices_paginates_until_a_short_page(fake_http):
     def handler(request):
         offset = int(request.url.params["offset"])
