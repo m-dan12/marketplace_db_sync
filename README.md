@@ -69,7 +69,14 @@ cp .env.example .env   # заполнить реальными секретам�
 ```
 python -m interface.cli.main sync <wb|ozon|selsup|all> [--account <name|all>]
 python -m interface.cli.main status [--limit N]
+python -m interface.cli.main backfill [--kinds K ...] [--account A] [--force] [--orders-mode sparse|all] [--max-files N]
+python -m interface.cli.main refresh-dims
+python -m interface.cli.main coverage
 ```
+
+`sync` каждую ночь собирает остатки (WB, Ozon, Selsup), заказы и продажи,
+а также **цены** (WB, Ozon), **рекламу WB** (последние 7 дней, апсертом) и
+**движения Selsup** (приёмки/отгрузки за последние 3 дня).
 
 `sync` тянет фиксированное окно данных и делает upsert; схема Postgres
 (`infrastructure/persistence/postgres/schema.sql`) применяется
@@ -78,14 +85,55 @@ python -m interface.cli.main status [--limit N]
 записью в `sync_runs` — падение одного источника логируется и не прерывает
 остальные (обработка ошибок и retry/backoff на 429/5xx — `shared/http_retry.py`).
 
+## Фундамент для ML (этапы 1–2 из `docs/ML_FOUNDATION_PLAN.md`)
+
+Дополнительные таблицы: `wb_prices`, `ozon_prices` (снэпшот на каждую
+ночь), `wb_ad_stats` (кампания × товар × день), `selsup_movements`
+(приёмки/отгрузки «Склада» и «Склада Квант»), `dim_article` (разбор
+артикула: бренд, код дизайна, коды размеров, вариант).
+
+Представления для признаков: `stock_by_place_daily`, `article_stock_daily`
+(остатки WB / Ozon / Selsup FBS / Selsup Квант по артикулу и дню с флагами
+`wb_out`/`ozon_out`), `out_of_stock_days_30` (дни без остатка за 30 дней),
+`stock_days`, `orders_daily`, `selsup_movements_v`.
+
+**Бэкфилл из Drive.** `backfill` читает архив «Выгрузка авто» (сервисный
+аккаунт, только чтение; `GOOGLE_SERVICE_ACCOUNT_FILE` и
+`DRIVE_ROOT_FOLDER_ID` в `.env`) и грузит его в те же таблицы, что и
+ночной синк. Повторный запуск безопасен: загруженные файлы запоминаются в
+`backfill_files`. Даты снэпшотов — дата изменения файла по Москве (так же,
+как дата наблюдения у ночного синка). Окна заказов/продаж пересекаются, поэтому
+по умолчанию (`--orders-mode sparse`) грузятся самый старый и три самых
+свежих файла.
+
+`coverage` показывает диапазон дат, число дней и строк по каждой таблице.
+
+### Ограничения
+
+- Часть ночных загрузок (цены, реклама, движения Selsup) написана по
+  контрактам из `reference/nightly_export.py` и проверена на разборе ответов,
+  но не на живом API (на этой машине нет ключей). Проверьте первый ночной
+  прогон командой `status`.
+- У движений Selsup нет кабинета: он определяется в представлении
+  `selsup_movements_v` по остаткам (`sku_id` → account).
+- «Остатки по складам FBO» Ozon (второй лист выгрузки) в базу не попадают:
+  в модели `ozon_stocks` нет разреза по складам.
+
 ## Тесты
 
 ```
 pytest
 ```
 
-Только unit-тесты `application/use_cases/` на фейковых реализациях портов
-(`tests/application/fakes.py`, без моков и без реальных HTTP/Postgres).
+Unit-тесты `application/use_cases/` на фейках портов
+(`tests/application/fakes.py`), разбор артикулов и xlsx, оркестрация бэкфилла
+на фейковом Drive. Интеграционные тесты на настоящем Postgres
+(`tests/integration`) пропускаются, пока не задан `TEST_DATABASE_URL`
+(пустая отдельная база — таблицы очищаются):
+
+```
+TEST_DATABASE_URL=postgresql://user@localhost/mdb_test pytest
+```
 
 ## Вне scope этого этапа
 

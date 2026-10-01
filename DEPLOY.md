@@ -166,6 +166,32 @@ python -m interface.cli.main status --limit 30
 друга, в одну и ту же Postgres-базу и на тот же Google Drive
 соответственно.
 
+## Разовый бэкфилл из Google Drive (после деплоя)
+
+Нужен ключ сервисного аккаунта (`drive_service_account.json`, уже лежит
+на сервере у проектов `priemka` / `marketplaces_auto_replies`) — положить
+рядом или указать существующий путь. В `.env`:
+
+```
+GOOGLE_SERVICE_ACCOUNT_FILE=<путь к drive_service_account.json>
+DRIVE_ROOT_FOLDER_ID=1i6pejqBzpThDI8Vxqg6-fqzJQ5ZL2eN8
+```
+
+Пробный прогон (по одному свежему файлу каждого типа), затем полный:
+
+```bash
+python -m interface.cli.main backfill --max-files 1
+python -m interface.cli.main backfill
+python -m interface.cli.main refresh-dims
+python -m interface.cli.main coverage
+```
+
+Полный прогон занимает порядка получаса (около 450 файлов, год движений
+Selsup — отдельный файл на 400 тыс. строк). Повторный запуск пропускает уже
+загруженные файлы. Бэкфилл надо запускать **один раз, до или сразу после
+включения ночного `sync`**: он пишет в те же таблицы, а за один и тот же
+день ночной синк и бэкфилл перезаписывают друг друга по ключу, не дублируя.
+
 ## Если что-то пошло не так
 
 - `RuntimeError: missing env var ...` — значит забыли вписать какой-то

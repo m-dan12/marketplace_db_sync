@@ -29,11 +29,22 @@ from infrastructure.persistence.postgres.repositories import (
     PostgresWbStockRepository,
 )
 from infrastructure.sources.ozon.orders import OzonOrdersSource
+from infrastructure.sources.ozon.prices import OzonPricesSource
 from infrastructure.sources.ozon.stocks import OzonStocksSource
+from infrastructure.sources.selsup.movements import SelsupMovementsSource
 from infrastructure.sources.selsup.stocks import SelsupStocksSource
+from infrastructure.sources.wb.ads import WBAdsSource
 from infrastructure.sources.wb.orders import WBOrdersSource
+from infrastructure.sources.wb.prices import WBPricesSource
 from infrastructure.sources.wb.sales import WBSalesSource
 from infrastructure.sources.wb.stocks import WBStocksSource
+from infrastructure.persistence.postgres.repositories_ml import (
+    PostgresOzonPriceRepository,
+    PostgresSelsupMovementRepository,
+    PostgresWbAdStatRepository,
+    PostgresWbPriceRepository,
+)
+from interface.cli import ml_commands
 
 logger = logging.getLogger("marketplace_db_sync")
 
@@ -63,22 +74,28 @@ def _sync_wb(conn: psycopg.Connection, accounts: list[str]) -> None:
     order_repo = PostgresWbOrderRepository(conn)
     sale_repo = PostgresWbSaleRepository(conn)
     stock_repo = PostgresWbStockRepository(conn)
+    price_repo = PostgresWbPriceRepository(conn)
+    ad_repo = PostgresWbAdStatRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         api_key = cfg.resolve_wb_api_key(account)
         _run(SyncOrdersUseCase("wb_orders", WBOrdersSource(api_key), order_repo, sync_run_repo), account)
         _run(SyncSalesUseCase("wb_sales", WBSalesSource(api_key), sale_repo, sync_run_repo), account)
         _run(SyncStocksUseCase("wb_stocks", WBStocksSource(api_key), stock_repo, sync_run_repo), account)
+        _run(SyncStocksUseCase("wb_prices", WBPricesSource(api_key), price_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("wb_ads", WBAdsSource(api_key), ad_repo, sync_run_repo), account)
 
 
 def _sync_ozon(conn: psycopg.Connection, accounts: list[str]) -> None:
     order_repo = PostgresOzonOrderRepository(conn)
     stock_repo = PostgresOzonStockRepository(conn)
+    price_repo = PostgresOzonPriceRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         client_id, api_key = cfg.resolve_ozon_credentials(account)
         _run(SyncOrdersUseCase("ozon_orders", OzonOrdersSource(client_id, api_key), order_repo, sync_run_repo), account)
         _run(SyncStocksUseCase("ozon_stocks", OzonStocksSource(client_id, api_key), stock_repo, sync_run_repo), account)
+        _run(SyncStocksUseCase("ozon_prices", OzonPricesSource(client_id, api_key), price_repo, sync_run_repo), account)
 
 
 def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:
@@ -91,6 +108,10 @@ def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:
     source = SelsupStocksSource(token, cfg.SELSUP_WAREHOUSES, cfg.SELSUP_ORGANIZATION_IDS)
     for account in accounts:
         _run(SyncStocksUseCase("selsup_stocks", source, stock_repo, sync_run_repo), account)
+    # Movement history has no organization: one run for everything, recorded
+    # under the pseudo-account 'all' (accounts are resolved in the DB view).
+    movement_repo = PostgresSelsupMovementRepository(conn)
+    _run(SyncOrdersUseCase("selsup_movements", SelsupMovementsSource(token), movement_repo, sync_run_repo), "all")
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
@@ -139,6 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = sub.add_parser("status", help="Show recent sync_runs entries")
     status_parser.add_argument("--limit", type=int, default=20)
     status_parser.set_defaults(func=cmd_status)
+
+    ml_commands.register(sub)
 
     return parser
 

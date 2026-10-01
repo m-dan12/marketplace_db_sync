@@ -110,3 +110,60 @@ class SyncRunSummary:
     status: str
     records_fetched: int
     error_message: Optional[str]
+
+
+@dataclass(frozen=True)
+class WbPriceLine:
+    nm_id: int
+    vendor_code: Optional[str]
+    tech_size: Optional[str]
+    size_id: Optional[int]
+    price: Optional[float]
+    discount: Optional[float]
+    discounted_price: Optional[float]
+
+
+@dataclass(frozen=True)
+class OzonPriceLine:
+    offer_id: str
+    product_id: Optional[int]
+    price: Optional[float]
+    old_price: Optional[float]
+    min_price: Optional[float]
+    marketing_seller_price: Optional[float]
+
+
+@dataclass(frozen=True)
+class WbAdStatLine:
+    """One WB advertising campaign x product x day."""
+    stat_date: date
+    campaign_id: int
+    nm_id: int
+    campaign_status: Optional[str]
+    views: Optional[int]
+    clicks: Optional[int]
+    ctr: Optional[float]
+    cpc: Optional[float]
+    spend: Optional[float]
+    orders: Optional[int]
+    carts: Optional[int]
+    avg_position: Optional[float]
+
+
+@dataclass(frozen=True)
+class SelsupMovementLine:
+    """One Selsup warehouse movement (receipt or shipment). The account is
+    not part of the line: Selsup's history rows carry no organization, it is
+    resolved later through `selsup_stocks` (sku_id -> account)."""
+    movement_type: str  # 'Приёмка' | 'Отгрузка'
+    operation: str
+    moved_at: datetime
+    warehouse_id: Optional[int]
+    order_id: Optional[int]
+    order_type: Optional[str]
+    sku_id: int
+    article: Optional[str]
+    product_name: Optional[str]
+    cell_name: Optional[str]
+    quantity: float
+    user_id: Optional[int]
