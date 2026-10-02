@@ -243,6 +243,8 @@ class PostgresArticleRepository:
             UNION SELECT vendor_code FROM wb_funnel_daily WHERE vendor_code IS NOT NULL
             UNION SELECT article FROM supply_items WHERE article IS NOT NULL
             UNION SELECT offer_id FROM ozon_warehouse_stocks
+            UNION SELECT article FROM production_lines
+            UNION SELECT article FROM article_specs
         """
         with self._conn.cursor() as cur:
             cur.execute(sql)

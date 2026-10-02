@@ -28,3 +28,9 @@ FUNNEL_WINDOW_DAYS = 3
 PROMOTIONS_ITEMS_LOOKBACK_DAYS = 3
 PROMOTIONS_CALENDAR_START = "2026-01-01"
 PROMOTIONS_CALENDAR_AHEAD_DAYS = 120
+
+# Google Sheets kept by hand (shared with the service account that reads Drive).
+# The ids are not secrets: access is granted to the account, not by the link.
+PLANNING_SPREADSHEET_ID = "1cdx99nrElv08rygrDnWrFmnJviJXjnPxLkWZqSkhvJI"
+PRODUCTION_SPREADSHEET_ID = "1pBYf7pG2Yj-hL1Q5XYytbXkBP2xT2Lvv0TFrC-kLGxI"
+SUPPLY_PLAN_SPREADSHEET_ID = "1Bq5Jz6WNtoz38-E9JWjdRkE-s6EqVaq0dppxKpSFU70"

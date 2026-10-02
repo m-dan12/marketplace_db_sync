@@ -542,3 +542,126 @@ SELECT account, day, nm_id, vendor_code, open_count, cart_count, order_count, bu
        order_count::numeric / NULLIF(cart_count, 0) AS cart_to_order,
        buyout_count::numeric / NULLIF(order_count, 0) AS order_to_buyout
 FROM wb_funnel_daily;
+
+-- ---------------------------------------------------------------------------
+-- Production and planning sheets (Google Sheets kept by hand).
+-- ---------------------------------------------------------------------------
+
+-- The production table, one row per article and region inside a task. Re-read
+-- in full every night; a row that disappears from the sheet is soft-deleted
+-- (plans that were revised stay visible), a changed status / fact is logged.
+CREATE TABLE IF NOT EXISTS production_lines (
+    row_key TEXT PRIMARY KEY,
+    sheet_row INT,
+    article TEXT NOT NULL,
+    quantity INT,
+    region TEXT,
+    order_text TEXT,
+    size_text TEXT,
+    meters NUMERIC(12, 3),
+    meters2 NUMERIC(12, 3),
+    week_number INT,
+    direction TEXT,
+    task_total INT,
+    task_key TEXT,
+    task_quantity INT,
+    fact_quantity INT,
+    fact_ship_date DATE,
+    fact_ship_raw TEXT,
+    fact_accept_date DATE,
+    fact_accept_raw TEXT,
+    status TEXT,
+    status_group TEXT,
+    week_start DATE,
+    week_end DATE,
+    receipt_no TEXT,
+    brand TEXT,
+    workshop TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS ix_production_lines_article ON production_lines (article);
+CREATE INDEX IF NOT EXISTS ix_production_lines_week ON production_lines (week_start);
+CREATE INDEX IF NOT EXISTS ix_production_lines_task ON production_lines (task_key);
+
+-- What changed in a tracked field (status, fact quantity/dates, receipt number)
+-- or when a row appeared / disappeared. before/after hold the tracked fields.
+CREATE TABLE IF NOT EXISTS production_line_log (
+    id BIGSERIAL PRIMARY KEY,
+    row_key TEXT NOT NULL,
+    changed_at TIMESTAMPTZ NOT NULL,
+    event TEXT NOT NULL,  -- 'changed' | 'deleted' | 'restored'
+    before JSONB,
+    after JSONB
+);
+CREATE INDEX IF NOT EXISTS ix_production_line_log_row ON production_line_log (row_key, changed_at);
+
+-- Current lines with the kind of work: sewing, a transfer between our warehouse
+-- and a marketplace, or a "подсортировка" (re-sorting stock already made).
+DROP VIEW IF EXISTS production_lines_v;
+CREATE VIEW production_lines_v AS
+SELECT p.*,
+       CASE WHEN p.order_text ILIKE 'перемещение%' THEN 'transfer'
+            WHEN p.order_text ILIKE 'подсортировка%' THEN 'resort'
+            ELSE 'sewing' END AS kind
+FROM production_lines p
+WHERE p.deleted_at IS NULL;
+
+-- Packing multiple per size key ('/6-17-17/'): the planning formula rounds the
+-- need up to `quant` ("Финальное V5").
+CREATE TABLE IF NOT EXISTS quant_multiples (
+    size_key TEXT PRIMARY KEY,
+    name TEXT,
+    volume_liters NUMERIC,
+    fits_in_box INT,
+    calculated_in_box INT,
+    desired_count INT,
+    final_count INT,
+    final_v4 INT,
+    quant INT,
+    fetched_at TIMESTAMPTZ NOT NULL
+);
+
+-- Fabric consumption per article (planning sheet 'артикулы').
+CREATE TABLE IF NOT EXISTS article_specs (
+    article TEXT PRIMARY KEY,
+    brand_name TEXT,
+    fabric_no_1 TEXT,
+    fabric_no_2 TEXT,
+    meters_per_item_1 NUMERIC,
+    meters_per_item_2 NUMERIC,
+    purpose TEXT,
+    size_text TEXT,
+    fetched_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dim_fabric (
+    fabric_no TEXT PRIMARY KEY,
+    material TEXT,
+    price_category TEXT,
+    roll_length_m NUMERIC,
+    roll_width_cm NUMERIC,
+    audience TEXT,
+    color TEXT,
+    pattern TEXT,
+    weave TEXT,
+    short_name TEXT,
+    supplier_article TEXT,
+    supplier_code TEXT,
+    supplier TEXT,
+    products TEXT,
+    fetched_at TIMESTAMPTZ NOT NULL
+);
+
+-- Fabric available at suppliers, a snapshot per day (the sheet only shows today).
+CREATE TABLE IF NOT EXISTS fabric_stock (
+    snapshot_date DATE NOT NULL,
+    fabric_no TEXT NOT NULL,
+    supplier TEXT NOT NULL DEFAULT '',
+    quantity_m NUMERIC,
+    name TEXT,
+    brand TEXT,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (snapshot_date, fabric_no, supplier)
+);

@@ -269,3 +269,93 @@ class OzonWarehouseStockLine:
     free_to_sell: Optional[int]
     reserved: Optional[int]
     promised: Optional[int]
+
+
+@dataclass(frozen=True)
+class ProductionLine:
+    """One row of the hand-kept production table (an article within a task and
+    a distribution region). `fact_*`, `status` and `receipt_no` describe the
+    task as a whole and repeat on every row of it. All cleaning is done by
+    `domain.production`; the raw date text is kept next to the parsed date."""
+    row_key: str
+    sheet_row: int
+    article: str
+    quantity: Optional[int]
+    region: Optional[str]
+    order_text: str
+    size_text: Optional[str]
+    meters: Optional[float]
+    meters2: Optional[float]
+    week_number: Optional[int]
+    direction: Optional[str]  # 'wb' | 'ozon' | 'sklad' | 'sklad_kvant'
+    task_total: Optional[int]
+    task_key: str
+    task_quantity: Optional[int]
+    fact_quantity: Optional[int]
+    fact_ship_date: Optional[date]
+    fact_ship_raw: Optional[str]
+    fact_accept_date: Optional[date]
+    fact_accept_raw: Optional[str]
+    status: Optional[str]
+    status_group: str
+    week_start: Optional[date]
+    week_end: Optional[date]
+    receipt_no: Optional[str]
+    brand: Optional[str]
+    workshop: Optional[str]
+
+
+@dataclass(frozen=True)
+class QuantMultipleLine:
+    """Packing multiple per size key ('/6-17-17/'): what the planning formula
+    rounds the need up to. `quant` is the "Финальное V5" column."""
+    size_key: str
+    name: Optional[str]
+    volume_liters: Optional[float]
+    fits_in_box: Optional[int]
+    calculated_in_box: Optional[int]
+    desired_count: Optional[int]
+    final_count: Optional[int]
+    final_v4: Optional[int]
+    quant: Optional[int]
+
+
+@dataclass(frozen=True)
+class ArticleSpecLine:
+    """Fabric consumption of an article from the planning sheet 'артикулы'."""
+    article: str
+    brand_name: Optional[str]
+    fabric_no_1: Optional[str]
+    fabric_no_2: Optional[str]
+    meters_per_item_1: Optional[float]
+    meters_per_item_2: Optional[float]
+    purpose: Optional[str]
+    size_text: Optional[str]
+
+
+@dataclass(frozen=True)
+class FabricLine:
+    fabric_no: str
+    material: Optional[str]
+    price_category: Optional[str]
+    roll_length_m: Optional[float]
+    roll_width_cm: Optional[float]
+    audience: Optional[str]
+    color: Optional[str]
+    pattern: Optional[str]
+    weave: Optional[str]
+    short_name: Optional[str]
+    supplier_article: Optional[str]
+    supplier_code: Optional[str]
+    supplier: Optional[str]
+    products: Optional[str]
+
+
+@dataclass(frozen=True)
+class FabricStockLine:
+    """Fabric available at a supplier (sheet 'наличие ткани'), one dated snapshot."""
+    fabric_no: str
+    quantity_m: Optional[float]
+    supplier: Optional[str]
+    name: Optional[str]
+    brand: Optional[str]

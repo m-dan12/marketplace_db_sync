@@ -1,0 +1,138 @@
+"""Integration tests (real Postgres) for the production / planning sheet data.
+Skipped without TEST_DATABASE_URL, like the others."""
+import dataclasses
+import os
+from datetime import date
+
+import pytest
+
+from domain.models import FabricStockLine, ProductionLine, QuantMultipleLine
+from infrastructure.persistence.postgres.connection import apply_schema, connect
+from infrastructure.persistence.postgres.repositories_sheets import (
+    PostgresFabricStockRepository,
+    PostgresProductionRepository,
+    PostgresQuantMultipleRepository,
+)
+
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set"
+)
+
+TABLES = "production_lines production_line_log quant_multiples fabric_stock".split()
+
+
+@pytest.fixture()
+def conn():
+    connection = connect(os.environ["TEST_DATABASE_URL"])
+    apply_schema(connection)
+    with connection.cursor() as cur:
+        cur.execute("TRUNCATE " + ", ".join(TABLES) + " RESTART IDENTITY")
+    connection.commit()
+    yield connection
+    connection.close()
+
+
+def rows(conn, sql, params=()):
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+
+def line(key="k1", article="A/1-0-0/1", order_text="заказ Задание", **overrides) -> ProductionLine:
+    base = dict(
+        row_key=key, sheet_row=2, article=article, quantity=2, region="Центральный", order_text=order_text,
+        size_text=None, meters=7.28, meters2=0.0, week_number=14, direction="sklad", task_total=1137,
+        task_key="14т", task_quantity=1137, fact_quantity=None, fact_ship_date=None, fact_ship_raw=None,
+        fact_accept_date=None, fact_accept_raw=None, status="в производстве", status_group="in_production",
+        week_start=date(2026, 3, 30), week_end=date(2026, 4, 5), receipt_no=None, brand="Timeless", workshop="Солях",
+    )
+    return ProductionLine(**{**base, **overrides})
+
+
+def test_first_load_inserts_without_log_and_a_repeat_changes_nothing(conn):
+    repo = PostgresProductionRepository(conn)
+    assert repo.upsert("all", [line("a"), line("b")]) == 2
+    repo.upsert("all", [line("a"), line("b")])
+    assert rows(conn, "SELECT COUNT(*) FROM production_lines") == [(2,)]
+    assert rows(conn, "SELECT COUNT(*) FROM production_line_log") == [(0,)]
+
+
+def test_a_changed_status_and_fact_are_logged_with_before_and_after(conn):
+    repo = PostgresProductionRepository(conn)
+    repo.upsert("all", [line("a")])
+    repo.upsert("all", [line("a", status="выпущено", status_group="released", fact_quantity=1097,
+                             fact_ship_date=date(2026, 4, 21), fact_ship_raw="21.04.2026", receipt_no="41268617")])
+    assert rows(conn, "SELECT status, fact_quantity, fact_ship_date FROM production_lines") == [
+        ("выпущено", 1097, date(2026, 4, 21)),
+    ]
+    event, before, after = rows(conn, "SELECT event, before, after FROM production_line_log")[0]
+    assert event == "changed"
+    assert before["status"] == "в производстве" and before["fact_quantity"] is None
+    assert after["status"] == "выпущено" and after["fact_quantity"] == 1097
+    assert after["fact_ship_date"] == "2026-04-21" and after["receipt_no"] == "41268617"
+
+
+def test_first_seen_stays_and_last_seen_moves(conn):
+    repo = PostgresProductionRepository(conn)
+    repo.upsert("all", [line("a")])
+    first = rows(conn, "SELECT first_seen_at, last_seen_at FROM production_lines")[0]
+    repo.upsert("all", [line("a")])
+    second = rows(conn, "SELECT first_seen_at, last_seen_at FROM production_lines")[0]
+    assert second[0] == first[0] and second[1] > first[1]
+
+
+def test_a_row_that_leaves_the_sheet_is_soft_deleted_and_can_come_back(conn):
+    repo = PostgresProductionRepository(conn)
+    repo.upsert("all", [line("a"), line("b"), line("c")])
+    repo.upsert("all", [line("a"), line("b")])  # c was removed (the plan was revised)
+    assert rows(conn, "SELECT row_key FROM production_lines_v ORDER BY 1") == [("a",), ("b",)]
+    assert rows(conn, "SELECT row_key FROM production_lines WHERE deleted_at IS NOT NULL") == [("c",)]
+    assert rows(conn, "SELECT row_key, event FROM production_line_log") == [("c", "deleted")]
+
+    repo.upsert("all", [line("a"), line("b"), line("c")])
+    assert rows(conn, "SELECT COUNT(*) FROM production_lines_v") == [(3,)]
+    assert [r[0] for r in rows(conn, "SELECT event FROM production_line_log ORDER BY id")] == ["deleted", "restored"]
+
+
+def test_a_truncated_sheet_is_refused_and_nothing_is_deleted(conn):
+    repo = PostgresProductionRepository(conn)
+    repo.upsert("all", [line(f"k{i}") for i in range(10)])
+    with pytest.raises(ValueError, match="refusing"):
+        repo.upsert("all", [line("k0"), line("k1")])
+    conn.rollback()
+    assert rows(conn, "SELECT COUNT(*) FROM production_lines_v") == [(10,)]
+    # an intended clean-up is possible with a lower ratio
+    PostgresProductionRepository(conn, min_kept_ratio=0.0).upsert("all", [line("k0"), line("k1")])
+    assert rows(conn, "SELECT COUNT(*) FROM production_lines_v") == [(2,)]
+
+
+def test_view_tells_sewing_from_transfers_and_resorting(conn):
+    PostgresProductionRepository(conn).upsert("all", [
+        line("a", order_text="заказ неделя 22 задание №8 цех Инна"),
+        line("b", order_text="перемещение со склада", workshop="ФБС"),
+        line("c", order_text="подсортировка фбс", workshop="ФБС"),
+    ])
+    assert rows(conn, "SELECT row_key, kind FROM production_lines_v ORDER BY 1") == [
+        ("a", "sewing"), ("b", "transfer"), ("c", "resort"),
+    ]
+
+
+def test_quant_multiples_upsert_updates_the_multiple(conn):
+    repo = PostgresQuantMultipleRepository(conn)
+    first = QuantMultipleLine("/6-17-17/", "КПБ Евро", 9.58, 5, 3, None, None, None, 5)
+    repo.upsert("all", [first])
+    repo.upsert("all", [dataclasses.replace(first, quant=4)])
+    assert rows(conn, "SELECT size_key, quant FROM quant_multiples") == [("/6-17-17/", 4)]
+
+
+def test_fabric_stock_is_a_snapshot_per_day_that_replaces_itself(conn):
+    repo = PostgresFabricStockRepository(conn)
+    d1, d2 = date(2026, 10, 1), date(2026, 10, 2)
+    repo.save_snapshot("all", d1, [FabricStockLine("110", 100.0, "тетрагон", "Пэчворк", "Сказка"),
+                                   FabricStockLine("110", 50.0, "тетрагон", "Пэчворк", "Сказка"),  # listed twice: summed
+                                   FabricStockLine("125", 70.0, None, "Бутоны", None)])
+    repo.save_snapshot("all", d2, [FabricStockLine("110", 20.0, "тетрагон", "Пэчворк", "Сказка")])
+    repo.save_snapshot("all", d1, [FabricStockLine("110", 90.0, "тетрагон", "Пэчворк", "Сказка")])  # a rerun: 125 is gone
+    assert rows(conn, "SELECT snapshot_date, fabric_no, quantity_m FROM fabric_stock ORDER BY 1, 2") == [
+        (d1, "110", 90), (d2, "110", 20),
+    ]

@@ -67,7 +67,7 @@ cp .env.example .env   # заполнить реальными секретам�
 ## Использование
 
 ```
-python -m interface.cli.main sync <wb|ozon|selsup|all> [--account <name|all>]
+python -m interface.cli.main sync <wb|ozon|selsup|sheets|all> [--account <name|all>]
 python -m interface.cli.main status [--limit N]
 python -m interface.cli.main backfill [--kinds K ...] [--account A] [--force] [--orders-mode sparse|all] [--max-files N]
 python -m interface.cli.main api-backfill <wb_supplies|ozon_supplies|wb_promotions|wb_funnel> [--account A] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
@@ -86,7 +86,16 @@ python -m interface.cli.main coverage
 - **акции** (`promotions`, `promotion_items`): календарь WB и акции Ozon с
   участвующими товарами; у Ozon API отдаёт только текущие, история копится с
   первой ночи;
-- **остатки Ozon FBO по складам** (`ozon_warehouse_stocks`).
+- **остатки Ozon FBO по складам** (`ozon_warehouse_stocks`);
+- **таблицы Google, которые ведут вручную** (`sync sheets`, сервисный аккаунт с
+  доступом на чтение, нужен `GOOGLE_SERVICE_ACCOUNT_FILE`): производство
+  (`production_lines` + журнал изменений `production_line_log`), кратности
+  кванта (`quant_multiples`), расход ткани по артикулам (`article_specs`),
+  справочник тканей (`dim_fabric`) и наличие ткани (`fabric_stock`, снэпшот на день).
+  Производство перечитывается целиком; исчезнувшая строка помечается удалённой,
+  а не стирается, а если лист пришёл «обрезанным» (меньше половины известных
+  строк), загрузка отклоняется. Лист, у которого переименовали колонку, тоже
+  отклоняется: лучше ошибка, чем сдвинутые данные.
 
 `sync` тянет фиксированное окно данных и делает upsert; схема Postgres
 (`infrastructure/persistence/postgres/schema.sql`) применяется

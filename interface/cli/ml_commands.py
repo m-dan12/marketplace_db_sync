@@ -125,6 +125,8 @@ _COVERAGE_QUERIES = (
     ("supply_items", "SELECT MIN(fetched_at)::date, MAX(fetched_at)::date, COUNT(DISTINCT fetched_at::date) FROM supply_items"),
     ("promotions", "SELECT MIN(start_at)::date, MAX(end_at)::date, COUNT(DISTINCT start_at::date) FROM promotions"),
     ("promotion_items", "SELECT MIN(first_seen_date), MAX(last_seen_date), COUNT(DISTINCT first_seen_date) FROM promotion_items"),
+    ("production_lines", "SELECT MIN(week_start), MAX(week_start), COUNT(DISTINCT week_start) FROM production_lines"),
+    ("fabric_stock", "SELECT MIN(snapshot_date), MAX(snapshot_date), COUNT(DISTINCT snapshot_date) FROM fabric_stock"),
 )
 
 

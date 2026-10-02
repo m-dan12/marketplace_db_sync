@@ -43,7 +43,8 @@ pytestmark = pytest.mark.skipif(
 
 TABLES = (
     "wb_orders wb_sales wb_stocks ozon_orders ozon_stocks selsup_stocks sync_runs wb_prices "
-    "ozon_prices wb_ad_stats selsup_movements dim_article backfill_files"
+    "ozon_prices wb_ad_stats selsup_movements dim_article backfill_files wb_funnel_daily supply_items "
+    "supplies ozon_warehouse_stocks production_lines article_specs"
 ).split()
 
 

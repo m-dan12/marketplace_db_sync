@@ -1,7 +1,7 @@
 """Composition root: the only place concrete adapters are constructed and
 wired into use cases. Usage:
 
-    python -m interface.cli.main sync <wb|ozon|selsup|all> [--account <name|all>]
+    python -m interface.cli.main sync <wb|ozon|selsup|sheets|all> [--account <name|all>]
     python -m interface.cli.main status [--limit N]
 """
 from __future__ import annotations
@@ -28,6 +28,7 @@ from infrastructure.persistence.postgres.repositories import (
     PostgresWbSaleRepository,
     PostgresWbStockRepository,
 )
+from infrastructure.config import settings
 from infrastructure.sources.ozon.orders import OzonOrdersSource
 from infrastructure.sources.ozon.prices import OzonPricesSource
 from infrastructure.sources.ozon.promotions import OzonActionsSource
@@ -36,6 +37,19 @@ from infrastructure.sources.ozon.warehouse_stocks import OzonWarehouseStocksSour
 from infrastructure.sources.ozon.stocks import OzonStocksSource
 from infrastructure.sources.selsup.movements import SelsupMovementsSource
 from infrastructure.sources.selsup.stocks import SelsupStocksSource
+from infrastructure.sources.sheets.client import SheetsClient
+from infrastructure.sources.sheets.planning import (
+    FABRIC_STOCK_SHEET,
+    FABRICS_SHEET,
+    QUANT_SHEET,
+    SPECS_SHEET,
+    SheetTableSource,
+    parse_article_specs,
+    parse_fabric_stock,
+    parse_fabrics,
+    parse_quant_multiples,
+)
+from infrastructure.sources.sheets.production import ProductionSheetSource
 from infrastructure.sources.wb.ads import WBAdsSource
 from infrastructure.sources.wb.funnel import WBFunnelSource
 from infrastructure.sources.wb.orders import WBOrdersSource
@@ -55,6 +69,13 @@ from infrastructure.persistence.postgres.repositories_supply_demand import (
     PostgresPromotionRepository,
     PostgresSupplyRepository,
     PostgresWbFunnelRepository,
+)
+from infrastructure.persistence.postgres.repositories_sheets import (
+    PostgresArticleSpecRepository,
+    PostgresFabricRepository,
+    PostgresFabricStockRepository,
+    PostgresProductionRepository,
+    PostgresQuantMultipleRepository,
 )
 from interface.cli import ml_commands
 
@@ -139,6 +160,33 @@ def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:
     _run(SyncOrdersUseCase("selsup_movements", SelsupMovementsSource(token), movement_repo, sync_run_repo), "all")
 
 
+def _sync_sheets(conn: psycopg.Connection) -> None:
+    """The hand-kept production and planning sheets. They cover every cabinet,
+    so each runs once under the pseudo-account 'all'."""
+    key_file = os.environ.get(ml_commands.SERVICE_ACCOUNT_ENV)
+    if not key_file:
+        logger.error("  sheets: %s is not set, skipped", ml_commands.SERVICE_ACCOUNT_ENV)
+        return
+    reader = SheetsClient(key_file)
+    sync_run_repo = PostgresSyncRunRepository(conn)
+    planning = settings.PLANNING_SPREADSHEET_ID
+    _run(SyncOrdersUseCase(
+        "sheet_production", ProductionSheetSource(reader, settings.PRODUCTION_SPREADSHEET_ID),
+        PostgresProductionRepository(conn), sync_run_repo), "all")
+    _run(SyncOrdersUseCase(
+        "sheet_quant_multiples", SheetTableSource(reader, planning, QUANT_SHEET, parse_quant_multiples),
+        PostgresQuantMultipleRepository(conn), sync_run_repo), "all")
+    _run(SyncOrdersUseCase(
+        "sheet_article_specs", SheetTableSource(reader, planning, SPECS_SHEET, parse_article_specs),
+        PostgresArticleSpecRepository(conn), sync_run_repo), "all")
+    _run(SyncOrdersUseCase(
+        "sheet_fabrics", SheetTableSource(reader, planning, FABRICS_SHEET, parse_fabrics),
+        PostgresFabricRepository(conn), sync_run_repo), "all")
+    _run(SyncStocksUseCase(
+        "sheet_fabric_stock", SheetTableSource(reader, planning, FABRIC_STOCK_SHEET, parse_fabric_stock),
+        PostgresFabricStockRepository(conn), sync_run_repo), "all")
+
+
 def cmd_sync(args: argparse.Namespace) -> None:
     accounts = _resolve_accounts(args.account)
     conn = connect(os.environ["DATABASE_URL"])
@@ -153,6 +201,9 @@ def cmd_sync(args: argparse.Namespace) -> None:
         if args.source in ("selsup", "all"):
             logger.info("=== Selsup ===")
             _sync_selsup(conn, accounts)
+        if args.source in ("sheets", "all"):
+            logger.info("=== Sheets ===")
+            _sync_sheets(conn)
     finally:
         conn.close()
 
@@ -178,7 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync_parser = sub.add_parser("sync", help="Pull data from marketplace APIs into Postgres")
-    sync_parser.add_argument("source", choices=["wb", "ozon", "selsup", "all"])
+    sync_parser.add_argument("source", choices=["wb", "ozon", "selsup", "sheets", "all"])
     sync_parser.add_argument("--account", default="all", help="account key, or 'all' (default)")
     sync_parser.set_defaults(func=cmd_sync)
 
