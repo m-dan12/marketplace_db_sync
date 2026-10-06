@@ -606,6 +606,9 @@ CREATE INDEX IF NOT EXISTS ix_production_line_log_row ON production_line_log (ro
 
 -- Current lines with the kind of work: sewing, a transfer between our warehouse
 -- and a marketplace, or a "подсортировка" (re-sorting stock already made).
+-- (the lead-time views further down depend on it)
+DROP VIEW IF EXISTS lead_times_by_workshop_v;
+DROP VIEW IF EXISTS lead_times_v;
 DROP VIEW IF EXISTS production_lines_v;
 CREATE VIEW production_lines_v AS
 SELECT p.*,
@@ -642,6 +645,37 @@ CREATE TABLE IF NOT EXISTS article_specs (
     size_text TEXT,
     fetched_at TIMESTAMPTZ NOT NULL
 );
+
+-- Sewing lead times per line: task week start -> shipped from the workshop -> accepted at
+-- the warehouse. A line is `is_valid` when both dates exist, are in that order and the whole
+-- way took at most 120 days (the sheet has typos in dates; ~1% of lines fail this).
+CREATE VIEW lead_times_v AS
+SELECT p.row_key, p.article, p.workshop, p.brand, p.direction, p.region, s.purpose AS category,
+       p.quantity, p.fact_quantity, p.week_start, p.fact_ship_date AS ship_date,
+       p.fact_accept_date AS accept_date,
+       p.fact_ship_date - p.week_start AS days_to_ship,
+       p.fact_accept_date - p.fact_ship_date AS days_ship_to_accept,
+       p.fact_accept_date - p.week_start AS days_total,
+       COALESCE(p.fact_ship_date >= p.week_start
+                AND p.fact_accept_date >= p.fact_ship_date
+                AND p.fact_accept_date - p.week_start <= 120, FALSE) AS is_valid
+FROM production_lines_v p
+LEFT JOIN article_specs s ON s.article = p.article
+WHERE p.kind = 'sewing' AND p.week_start IS NOT NULL
+  AND p.fact_ship_date IS NOT NULL AND p.fact_accept_date IS NOT NULL;
+
+-- What the planning formula hard-codes as 28 days, measured: per workshop and brand over lines
+-- accepted in the last 180 days. Pieces are weighted by nothing — one line, one observation.
+CREATE VIEW lead_times_by_workshop_v AS
+SELECT workshop, brand, COUNT(*) AS lines, SUM(quantity) AS pieces,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY days_total) AS median_days,
+       percentile_cont(0.9) WITHIN GROUP (ORDER BY days_total) AS p90_days,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY days_to_ship) AS median_days_to_ship,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY days_ship_to_accept) AS median_days_ship_to_accept
+FROM lead_times_v
+WHERE is_valid AND accept_date >= CURRENT_DATE - 180
+GROUP BY workshop, brand;
+
 
 CREATE TABLE IF NOT EXISTS dim_fabric (
     fabric_no TEXT PRIMARY KEY,

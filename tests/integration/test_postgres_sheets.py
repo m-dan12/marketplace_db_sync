@@ -2,7 +2,7 @@
 Skipped without TEST_DATABASE_URL, like the others."""
 import dataclasses
 import os
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -117,6 +117,34 @@ def test_view_tells_sewing_from_transfers_and_resorting(conn):
     assert rows(conn, "SELECT row_key, kind FROM production_lines_v ORDER BY 1") == [
         ("a", "sewing"), ("b", "transfer"), ("c", "resort"),
     ]
+
+
+def test_lead_times_measure_the_way_and_flag_typos(conn):
+    done = dict(status="выпущено", status_group="released", week_start=date(2026, 8, 3))
+    PostgresProductionRepository(conn).upsert("all", [
+        line("ok", **done, fact_ship_date=date(2026, 8, 20), fact_accept_date=date(2026, 8, 27)),
+        line("typo", **done, fact_ship_date=date(2026, 8, 20), fact_accept_date=date(2025, 8, 27)),
+        line("open", **done, fact_ship_date=date(2026, 8, 20)),
+        line("move", order_text="перемещение со склада", **done,
+             fact_ship_date=date(2026, 8, 20), fact_accept_date=date(2026, 8, 21)),
+    ])
+    assert rows(conn, "SELECT row_key, days_to_ship, days_ship_to_accept, days_total, is_valid "
+                      "FROM lead_times_v ORDER BY 1") == [
+        ("ok", 17, 7, 24, True),
+        ("typo", 17, -358, -341, False),
+    ]
+
+
+def test_lead_time_summary_uses_valid_recent_lines_per_workshop(conn):
+    recent = date.today()
+    done = dict(status="выпущено", status_group="released", week_start=recent - timedelta(days=40))
+    PostgresProductionRepository(conn).upsert("all", [
+        line("a", **done, fact_ship_date=recent - timedelta(days=20), fact_accept_date=recent - timedelta(days=10)),
+        line("b", **done, fact_ship_date=recent - timedelta(days=16), fact_accept_date=recent),
+        line("bad", **done, fact_ship_date=recent - timedelta(days=16), fact_accept_date=recent - timedelta(days=50)),
+    ])
+    assert rows(conn, "SELECT workshop, lines, median_days, median_days_to_ship "
+                      "FROM lead_times_by_workshop_v") == [("Солях", 2, 35, 22)]
 
 
 def test_quant_multiples_upsert_updates_the_multiple(conn):
