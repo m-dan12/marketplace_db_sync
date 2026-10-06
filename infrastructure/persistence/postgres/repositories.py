@@ -242,8 +242,9 @@ _SELSUP_STOCKS_UPSERT_SQL = """
     INSERT INTO selsup_stocks (
         account, snapshot_date, warehouse_id, warehouse_name, sku_id, article, wb_size,
         ozon_article, cell_name, quantity, available_quantity, calculated_quantity,
-        modify_date, fetched_at
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        modify_date, fetched_at, product_name, category, brand, model_article, purchase_price,
+        organization_id
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (account, snapshot_date, warehouse_id, sku_id) DO UPDATE SET
         warehouse_name = EXCLUDED.warehouse_name,
         article = EXCLUDED.article,
@@ -254,7 +255,13 @@ _SELSUP_STOCKS_UPSERT_SQL = """
         available_quantity = EXCLUDED.available_quantity,
         calculated_quantity = EXCLUDED.calculated_quantity,
         modify_date = EXCLUDED.modify_date,
-        fetched_at = EXCLUDED.fetched_at
+        fetched_at = EXCLUDED.fetched_at,
+        product_name = EXCLUDED.product_name,
+        category = EXCLUDED.category,
+        brand = EXCLUDED.brand,
+        model_article = EXCLUDED.model_article,
+        purchase_price = EXCLUDED.purchase_price,
+        organization_id = EXCLUDED.organization_id
 """
 
 
@@ -270,7 +277,8 @@ class PostgresSelsupStockRepository:
             (
                 account, snapshot_date, r.warehouse_id, r.warehouse_name, r.sku_id, r.article,
                 r.wb_size, r.ozon_article, r.cell_name, r.quantity, r.available_quantity,
-                r.calculated_quantity, r.modify_date, fetched_at,
+                r.calculated_quantity, r.modify_date, fetched_at, r.product_name, r.category, r.brand,
+                r.model_article, r.purchase_price, r.organization_id,
             )
             for r in rows
         ]

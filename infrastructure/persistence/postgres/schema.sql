@@ -729,3 +729,28 @@ CREATE TABLE IF NOT EXISTS wb_article_pricing (
     fetched_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (account, article)
 );
+
+-- Selsup product data next to the stock: category (e.g. 'Ткани для рукоделия'), brand, name,
+-- the model's article (set even when the sku has none, as with fabric and fittings) and cost.
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS product_name TEXT;
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS brand TEXT;
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS model_article TEXT;
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS organization_id BIGINT;
+
+-- Marketplace cards with category, brand and title (the stock and order reports have none of them).
+-- The latest state per card; first_seen_at tells when a card appeared.
+CREATE TABLE IF NOT EXISTS product_cards (
+    marketplace TEXT NOT NULL,
+    account TEXT NOT NULL,
+    article TEXT NOT NULL,
+    external_id BIGINT,
+    title TEXT,
+    brand TEXT,
+    category TEXT,
+    category_id BIGINT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (marketplace, account, article)
+);

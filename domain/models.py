@@ -99,6 +99,12 @@ class SelsupStockLine:
     available_quantity: Optional[float]
     calculated_quantity: Optional[float]
     modify_date: Optional[datetime]
+    product_name: Optional[str] = None
+    category: Optional[str] = None  # Selsup category, e.g. 'Ткани для рукоделия'
+    brand: Optional[str] = None
+    model_article: Optional[str] = None  # article of the product model (set even when the sku has none)
+    purchase_price: Optional[float] = None
+    organization_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -392,3 +398,15 @@ class WbArticlePricingLine:
     limit_price: Optional[float]
     limit_discount: Optional[float]
     launch_discount: Optional[float]  # старт новинки
+
+
+@dataclass(frozen=True)
+class ProductCardLine:
+    """A marketplace card with what the stock and order reports lack: category, brand, title."""
+    marketplace: str  # 'wb' | 'ozon'
+    article: str  # WB vendorCode / Ozon offer_id
+    external_id: Optional[int]  # WB nmID / Ozon product id
+    title: Optional[str]
+    brand: Optional[str]  # WB only: Ozon's brand is an attribute that needs a separate call
+    category: Optional[str]  # WB subjectName / Ozon 'category > type'
+    category_id: Optional[int]  # WB subjectID / Ozon description_category_id

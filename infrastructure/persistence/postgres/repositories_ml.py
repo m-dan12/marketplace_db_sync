@@ -10,7 +10,7 @@ from typing import Iterable, Optional, Sequence
 import psycopg
 
 from domain.article import ParsedArticle
-from domain.models import OzonPriceLine, SelsupMovementLine, WbAdStatLine, WbPriceLine
+from domain.models import OzonPriceLine, ProductCardLine, SelsupMovementLine, WbAdStatLine, WbPriceLine
 
 
 def _now() -> datetime:
@@ -310,3 +310,32 @@ class PostgresBackfillRepository:
                 (drive_file_id, kind, account, file_name, snapshot_date, rows_loaded, _now()),
             )
         self._conn.commit()
+
+
+class PostgresProductCardRepository:
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def upsert(self, account: str, rows: Sequence[ProductCardLine]) -> int:
+        now = _now()
+        unique = {(r.marketplace, r.article): r for r in rows}
+        with self._conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO product_cards (
+                    marketplace, account, article, external_id, title, brand, category, category_id,
+                    first_seen_at, fetched_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (marketplace, account, article) DO UPDATE SET
+                    external_id = EXCLUDED.external_id, title = EXCLUDED.title, brand = EXCLUDED.brand,
+                    category = EXCLUDED.category, category_id = EXCLUDED.category_id,
+                    fetched_at = EXCLUDED.fetched_at
+                """,
+                [
+                    (r.marketplace, account, r.article, r.external_id, r.title, r.brand, r.category,
+                     r.category_id, now, now)
+                    for r in unique.values()
+                ],
+            )
+        self._conn.commit()
+        return len(unique)

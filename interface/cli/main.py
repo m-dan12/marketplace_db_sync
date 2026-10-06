@@ -30,6 +30,7 @@ from infrastructure.persistence.postgres.repositories import (
     PostgresWbStockRepository,
 )
 from infrastructure.config import settings
+from infrastructure.sources.ozon.cards import OzonCardsSource
 from infrastructure.sources.ozon.orders import OzonOrdersSource
 from infrastructure.sources.ozon.prices import OzonPricesSource
 from infrastructure.sources.ozon.promotions import OzonActionsSource
@@ -57,6 +58,7 @@ from infrastructure.sources.sheets.pricing import (
 )
 from infrastructure.sources.sheets.production import ProductionSheetSource
 from infrastructure.sources.wb.ads import WBAdsSource
+from infrastructure.sources.wb.cards import WBCardsSource
 from infrastructure.sources.wb.funnel import WBFunnelSource
 from infrastructure.sources.wb.orders import WBOrdersSource
 from infrastructure.sources.wb.prices import WBPricesSource
@@ -69,6 +71,7 @@ from infrastructure.persistence.postgres.repositories_baseline import (
     PostgresBaselineRepository,
 )
 from infrastructure.persistence.postgres.repositories_ml import (
+    PostgresProductCardRepository,
     PostgresOzonPriceRepository,
     PostgresSelsupMovementRepository,
     PostgresWbAdStatRepository,
@@ -124,6 +127,7 @@ def _sync_wb(conn: psycopg.Connection, accounts: list[str]) -> None:
     supply_repo = PostgresSupplyRepository(conn)
     promo_repo = PostgresPromotionRepository(conn)
     funnel_repo = PostgresWbFunnelRepository(conn)
+    card_repo = PostgresProductCardRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         api_key = cfg.resolve_wb_api_key(account)
@@ -134,6 +138,7 @@ def _sync_wb(conn: psycopg.Connection, accounts: list[str]) -> None:
         _run(SyncOrdersUseCase("wb_ads", WBAdsSource(api_key), ad_repo, sync_run_repo), account)
         _run(SyncOrdersUseCase("wb_supplies", WBSuppliesSource(api_key), supply_repo, sync_run_repo), account)
         _run(SyncOrdersUseCase("wb_promotions", WBPromotionsSource(api_key), promo_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("wb_cards", WBCardsSource(api_key), card_repo, sync_run_repo), account)
         # The funnel endpoint allows 3 requests a minute, so it goes last.
         _run(SyncOrdersUseCase("wb_funnel", WBFunnelSource(api_key), funnel_repo, sync_run_repo), account)
 
@@ -145,6 +150,7 @@ def _sync_ozon(conn: psycopg.Connection, accounts: list[str]) -> None:
     warehouse_repo = PostgresOzonWarehouseStockRepository(conn)
     supply_repo = PostgresSupplyRepository(conn)
     promo_repo = PostgresPromotionRepository(conn)
+    card_repo = PostgresProductCardRepository(conn)
     sync_run_repo = PostgresSyncRunRepository(conn)
     for account in accounts:
         client_id, api_key = cfg.resolve_ozon_credentials(account)
@@ -154,6 +160,7 @@ def _sync_ozon(conn: psycopg.Connection, accounts: list[str]) -> None:
         _run(SyncStocksUseCase("ozon_warehouse_stocks", OzonWarehouseStocksSource(client_id, api_key), warehouse_repo, sync_run_repo), account)
         _run(SyncOrdersUseCase("ozon_supplies", OzonSuppliesSource(client_id, api_key), supply_repo, sync_run_repo), account)
         _run(SyncOrdersUseCase("ozon_promotions", OzonActionsSource(client_id, api_key), promo_repo, sync_run_repo), account)
+        _run(SyncOrdersUseCase("ozon_cards", OzonCardsSource(client_id, api_key), card_repo, sync_run_repo), account)
 
 
 def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:

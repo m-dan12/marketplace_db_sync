@@ -50,22 +50,23 @@ class SelsupStocksSource:
                 # Rows with quantity == 0 are "phantom" zero remains — skip them.
                 items = [row for row in response.json() if row.get("quantity")]
                 sku_ids = {row.get("skuId") for row in items if row.get("skuId")}
-                org_map = self._organization_id_map(client, headers, sku_ids)
+                products = self._product_info(client, headers, sku_ids)
 
                 for row in items:
-                    org_id = org_map.get(row.get("skuId"))
-                    account_key = self._organization_ids.get(org_id)
+                    info = products.get(row.get("skuId")) or {}
+                    account_key = self._organization_ids.get(info.get("organizationId"))
                     if account_key is None:
                         continue
                     by_account.setdefault(account_key, []).append(
-                        _parse_stock_row(warehouse_id, warehouse_name, row)
+                        _parse_stock_row(warehouse_id, warehouse_name, row, info)
                     )
         return by_account
 
-    def _organization_id_map(
+    def _product_info(
         self, client: httpx.Client, headers: dict[str, str], sku_ids: set[int]
-    ) -> dict[int, int]:
-        org_map: dict[int, int] = {}
+    ) -> dict[int, dict[str, Any]]:
+        """`product/find` rows by sku id: the cabinet (organizationId), name, category and brand."""
+        info: dict[int, dict[str, Any]] = {}
         ids = list(sku_ids)
         for i in range(0, len(ids), _ORG_LOOKUP_BATCH_SIZE):
             chunk = ids[i : i + _ORG_LOOKUP_BATCH_SIZE]
@@ -74,18 +75,21 @@ class SelsupStocksSource:
                 headers=headers, params={"ids": chunk, "limit": _ORG_LOOKUP_BATCH_SIZE},
             )
             for row in response.json().get("rows", []):
-                org_map[row.get("id")] = row.get("organizationId")
-        return org_map
+                info[row.get("id")] = row
+        return info
 
 
-def _parse_stock_row(warehouse_id: int, warehouse_name: str, raw: dict[str, Any]) -> SelsupStockLine:
+def _parse_stock_row(
+    warehouse_id: int, warehouse_name: str, raw: dict[str, Any], info: Optional[dict[str, Any]] = None
+) -> SelsupStockLine:
     product = ((raw.get("sku") or {}).get("product")) or {}
     cell = raw.get("cell") or {}
+    model = ((info or {}).get("view") or {}).get("model") or {}
     return SelsupStockLine(
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
         sku_id=raw.get("skuId"),
-        article=product.get("anyArticle"),
+        article=product.get("anyArticle") or None,  # blank for fabric and fittings
         wb_size=product.get("wildberriesSizeId"),
         ozon_article=product.get("ozonArticle"),
         cell_name=cell.get("fullName"),
@@ -93,4 +97,10 @@ def _parse_stock_row(warehouse_id: int, warehouse_name: str, raw: dict[str, Any]
         available_quantity=raw.get("availableQuantity"),
         calculated_quantity=raw.get("calculatedQuantity"),
         modify_date=parse_datetime(raw.get("modifyDate")),
+        product_name=(info or {}).get("name"),
+        category=(model.get("category") or {}).get("name"),
+        brand=(model.get("brand") or {}).get("name"),
+        model_article=model.get("article") or None,
+        purchase_price=raw.get("purchasePrice"),
+        organization_id=(info or {}).get("organizationId"),
     )

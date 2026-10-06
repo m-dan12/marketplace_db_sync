@@ -69,3 +69,48 @@ def test_selsup_movement_row():
     )
     unknown = parse_movement({**raw, "item": {"skuId": 99}}, {})
     assert unknown.article is None
+
+
+def test_selsup_stock_row_carries_category_brand_and_the_model_article():
+    from infrastructure.sources.selsup.stocks import _parse_stock_row
+
+    raw = {
+        "skuId": 146062, "quantity": 15000, "availableQuantity": 15000, "calculatedQuantity": 0,
+        "purchasePrice": 0.54, "cell": {"fullName": "Без места"},
+        "sku": {"product": {"anyArticle": "", "ozonArticle": None}},
+    }
+    info = {
+        "name": "Ткань", "organizationId": 100980,
+        "view": {"model": {"article": "1588552073", "category": {"name": "Ткани для рукоделия"}, "brand": {"name": "Сказка"}}},
+    }
+    line = _parse_stock_row(10016, "Фурнитура Профтекс", raw, info)
+    assert line.article is None and line.model_article == "1588552073"
+    assert (line.category, line.brand, line.product_name, line.purchase_price) == ("Ткани для рукоделия", "Сказка", "Ткань", 0.54)
+    assert _parse_stock_row(10016, "w", raw).category is None  # no product info found
+
+
+def test_wb_cards_keep_brand_title_and_subject():
+    from infrastructure.sources.wb.cards import parse_cards
+
+    cards = parse_cards([
+        {"nmID": 5, "vendorCode": "PT1/0-0-24/1", "brand": "Сказка", "title": "Наволочки", "subjectID": 689, "subjectName": "Наволочки"},
+        {"nmID": 6, "vendorCode": "", "brand": "x"},
+    ])
+    assert [(c.article, c.external_id, c.brand, c.category, c.category_id) for c in cards] == [
+        ("PT1/0-0-24/1", 5, "Сказка", "Наволочки", 689)]
+
+
+def test_ozon_category_tree_names_the_types_under_their_category():
+    from infrastructure.sources.ozon.cards import flatten_category_tree, parse_cards
+
+    tree = [{"description_category_id": 1, "category_name": "Дом и сад", "children": [
+        {"description_category_id": 2, "category_name": "Постельное бельё", "children": [
+            {"type_id": 9, "type_name": "Пододеяльник", "children": []}]}]}]
+    names = flatten_category_tree(tree)
+    assert names == {(2, 9): "Постельное бельё > Пододеяльник"}
+    cards = parse_cards([
+        {"id": 11, "offer_id": "A", "name": "Пододеяльник", "description_category_id": 2, "type_id": 9},
+        {"id": 12, "offer_id": "B", "name": "x", "description_category_id": 3, "type_id": 1},
+        {"id": 13, "name": "no offer"},
+    ], names)
+    assert [(c.article, c.category) for c in cards] == [("A", "Постельное бельё > Пододеяльник"), ("B", None)]

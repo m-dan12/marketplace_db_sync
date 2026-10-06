@@ -44,7 +44,7 @@ pytestmark = pytest.mark.skipif(
 TABLES = (
     "wb_orders wb_sales wb_stocks ozon_orders ozon_stocks selsup_stocks sync_runs wb_prices "
     "ozon_prices wb_ad_stats selsup_movements dim_article backfill_files wb_funnel_daily supply_items "
-    "supplies ozon_warehouse_stocks production_lines article_specs baseline_recommendation"
+    "supplies ozon_warehouse_stocks production_lines article_specs baseline_recommendation product_cards"
 ).split()
 
 
@@ -269,3 +269,17 @@ def test_backfill_bookkeeping(conn):
     repo.mark_loaded("id:2026-09-30", "wb_prices", "skazka", "f.xlsx", date(2026, 9, 30), 12)
     assert repo.loaded_file_ids() == {"id:2026-09-30"}
     assert scalar(conn, "SELECT rows_loaded FROM backfill_files") == 12
+
+
+def test_product_cards_are_the_latest_state_and_keep_first_seen(conn):
+    from domain.models import ProductCardLine
+    from infrastructure.persistence.postgres.repositories_ml import PostgresProductCardRepository
+
+    repo = PostgresProductCardRepository(conn)
+    repo.upsert("skazka", [ProductCardLine("wb", "A", 1, "t", "Сказка", "Наволочки", 689)])
+    first_seen = scalar(conn, "SELECT first_seen_at FROM product_cards")
+    repo.upsert("skazka", [ProductCardLine("wb", "A", 1, "t2", "Сказка", "Простыни", 690),
+                           ProductCardLine("wb", "A", 1, "dup", "Сказка", "Простыни", 690)])
+    assert scalar(conn, "SELECT COUNT(*) FROM product_cards") == 1
+    assert scalar(conn, "SELECT category FROM product_cards") == "Простыни"
+    assert scalar(conn, "SELECT first_seen_at FROM product_cards") == first_seen
