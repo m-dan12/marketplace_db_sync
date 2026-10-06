@@ -38,7 +38,7 @@ from infrastructure.sources.ozon.supplies import OzonSuppliesSource
 from infrastructure.sources.ozon.warehouse_stocks import OzonWarehouseStocksSource
 from infrastructure.sources.ozon.stocks import OzonStocksSource
 from infrastructure.sources.selsup.movements import SelsupMovementsSource
-from infrastructure.sources.selsup.stocks import SelsupStocksSource
+from infrastructure.sources.selsup.stocks import OTHER_ACCOUNT, SelsupStocksSource
 from infrastructure.sources.sheets.client import SheetsClient
 from infrastructure.sources.sheets.planning import (
     FABRIC_STOCK_SHEET,
@@ -171,7 +171,8 @@ def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:
     # together per warehouse, so the first `fetch()` caches it and later
     # calls (for the other accounts) just filter the cache.
     source = SelsupStocksSource(token, cfg.SELSUP_WAREHOUSES, cfg.SELSUP_ORGANIZATION_IDS)
-    for account in accounts:
+    # 'other' = organizations that are not our cabinets (fabric purchasing); same cached fetch.
+    for account in [*accounts, OTHER_ACCOUNT]:
         _run(SyncStocksUseCase("selsup_stocks", source, stock_repo, sync_run_repo), account)
     # Movement history has no organization: one run for everything, recorded
     # under the pseudo-account 'all' (accounts are resolved in the DB view).

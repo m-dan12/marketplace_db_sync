@@ -9,6 +9,9 @@ from infrastructure.sources.parsing import parse_datetime
 from shared.http_retry import request_with_retry
 
 SELSUP_BASE = "https://api.selsup.ru"
+# Rows of any other organization (fabric purchasing, fittings) or of a sku `product/find` does not
+# know are kept under this pseudo-account instead of being dropped.
+OTHER_ACCOUNT = "other"
 _ORG_LOOKUP_BATCH_SIZE = 200
 
 
@@ -54,9 +57,7 @@ class SelsupStocksSource:
 
                 for row in items:
                     info = products.get(row.get("skuId")) or {}
-                    account_key = self._organization_ids.get(info.get("organizationId"))
-                    if account_key is None:
-                        continue
+                    account_key = self._organization_ids.get(info.get("organizationId"), OTHER_ACCOUNT)
                     by_account.setdefault(account_key, []).append(
                         _parse_stock_row(warehouse_id, warehouse_name, row, info)
                     )

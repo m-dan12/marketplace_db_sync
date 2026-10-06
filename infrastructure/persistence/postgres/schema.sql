@@ -287,7 +287,7 @@ SELECT account, snapshot_date, article,
                          ELSE 'selsup_other' END,
        SUM(quantity)
 FROM selsup_stocks
-WHERE article IS NOT NULL
+WHERE article IS NOT NULL AND account <> 'other'  -- 'other' = not our cabinets (fabric purchasing)
 GROUP BY account, snapshot_date, article, warehouse_id
 UNION ALL
 SELECT DISTINCT account, snapshot_date, vendor_code, 'wb'::text, 0::numeric
