@@ -92,11 +92,13 @@ def _parse_stock_row(
     product = ((raw.get("sku") or {}).get("product")) or {}
     cell = raw.get("cell") or {}
     model = ((info or {}).get("view") or {}).get("model") or {}
+    own_article = product.get("anyArticle") or None  # blank for sets: fabric rolls, fittings
+    model_article = model.get("article") or None
     return SelsupStockLine(
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
         sku_id=raw.get("skuId"),
-        article=product.get("anyArticle") or None,  # blank for fabric and fittings
+        article=own_article or model_article,
         wb_size=product.get("wildberriesSizeId"),
         ozon_article=product.get("ozonArticle"),
         cell_name=cell.get("fullName"),
@@ -107,7 +109,8 @@ def _parse_stock_row(
         product_name=(info or {}).get("name"),
         category=(model.get("category") or {}).get("name"),
         brand=(model.get("brand") or {}).get("name"),
-        model_article=model.get("article") or None,
+        model_article=model_article,
         purchase_price=raw.get("purchasePrice"),
         organization_id=(info or {}).get("organizationId"),
+        article_from_model=own_article is None and model_article is not None,
     )

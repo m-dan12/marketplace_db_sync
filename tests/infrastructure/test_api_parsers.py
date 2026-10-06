@@ -84,9 +84,11 @@ def test_selsup_stock_row_carries_category_brand_and_the_model_article():
         "view": {"model": {"article": "1588552073", "category": {"name": "Ткани для рукоделия"}, "brand": {"name": "Сказка"}}},
     }
     line = _parse_stock_row(10016, "Фурнитура Профтекс", raw, info)
-    assert line.article is None and line.model_article == "1588552073"
+    # a set has no article of its own: the model's one stands in, flagged so it is not planned as goods
+    assert (line.article, line.model_article, line.article_from_model) == ("1588552073", "1588552073", True)
     assert (line.category, line.brand, line.product_name, line.purchase_price) == ("Ткани для рукоделия", "Сказка", "Ткань", 0.54)
     assert _parse_stock_row(10016, "w", raw).category is None  # no product info found
+    assert _parse_stock_row(10016, "w", raw).article is None
 
 
 def test_wb_cards_keep_brand_title_and_subject():

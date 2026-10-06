@@ -283,3 +283,23 @@ def test_product_cards_are_the_latest_state_and_keep_first_seen(conn):
     assert scalar(conn, "SELECT COUNT(*) FROM product_cards") == 1
     assert scalar(conn, "SELECT category FROM product_cards") == "Простыни"
     assert scalar(conn, "SELECT first_seen_at FROM product_cards") == first_seen
+
+
+def test_selsup_snapshot_replaces_the_day_and_a_moved_sku_is_not_counted_twice(conn):
+    day = date(2026, 10, 6)
+    repo = PostgresSelsupStockRepository(conn)
+    roll = dict(warehouse_id=10001, warehouse_name="FBS", sku_id=163491, wb_size=None, ozon_article=None,
+                cell_name="c", available_quantity=80, calculated_quantity=0, modify_date=None)
+    # first run: the roll was not recognised and went to 'other'; another sku will drop to zero
+    repo.save_snapshot("other", day, [
+        SelsupStockLine(article=None, quantity=80, **roll),
+        SelsupStockLine(**{**roll, "sku_id": 7}, article="GONE", quantity=3),
+    ])
+    # second run: the roll belongs to skazka now and sku 7 has no stock any more
+    repo.save_snapshot("skazka", day, [SelsupStockLine(article="PT5926", quantity=80, article_from_model=True, **roll)])
+    repo.save_snapshot("other", day, [SelsupStockLine(**{**roll, "sku_id": 8}, article="X", quantity=1)])
+    with conn.cursor() as cur:
+        cur.execute("SELECT account, sku_id, article, article_from_model FROM selsup_stocks ORDER BY sku_id")
+        assert cur.fetchall() == [("other", 8, "X", False), ("skazka", 163491, "PT5926", True)]
+        cur.execute("SELECT article FROM stock_by_place_daily WHERE place = 'selsup_fbs'")
+        assert cur.fetchall() == []  # the roll is fabric: not in the per-article stock, and 'other' is out too

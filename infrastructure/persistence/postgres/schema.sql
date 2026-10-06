@@ -132,6 +132,8 @@ CREATE TABLE IF NOT EXISTS selsup_stocks (
     UNIQUE (account, snapshot_date, warehouse_id, sku_id)
 );
 CREATE INDEX IF NOT EXISTS ix_selsup_stocks_account_date ON selsup_stocks (account, snapshot_date);
+-- true when `article` is the model's (fabric rolls, fittings): such rows are not goods to plan
+ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS article_from_model BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS sync_runs (
     id BIGSERIAL PRIMARY KEY,
@@ -287,7 +289,8 @@ SELECT account, snapshot_date, article,
                          ELSE 'selsup_other' END,
        SUM(quantity)
 FROM selsup_stocks
-WHERE article IS NOT NULL AND account <> 'other'  -- 'other' = not our cabinets (fabric purchasing)
+WHERE article IS NOT NULL AND account <> 'other'  -- 'other' = organizations that are not our cabinets
+  AND NOT article_from_model  -- fabric rolls and fittings
 GROUP BY account, snapshot_date, article, warehouse_id
 UNION ALL
 SELECT DISTINCT account, snapshot_date, vendor_code, 'wb'::text, 0::numeric

@@ -105,6 +105,7 @@ class SelsupStockLine:
     model_article: Optional[str] = None  # article of the product model (set even when the sku has none)
     purchase_price: Optional[float] = None
     organization_id: Optional[int] = None
+    article_from_model: bool = False  # `article` is the model's (sets: fabric rolls), not the sku's own
 
 
 @dataclass(frozen=True)

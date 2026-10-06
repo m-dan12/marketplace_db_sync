@@ -243,8 +243,8 @@ _SELSUP_STOCKS_UPSERT_SQL = """
         account, snapshot_date, warehouse_id, warehouse_name, sku_id, article, wb_size,
         ozon_article, cell_name, quantity, available_quantity, calculated_quantity,
         modify_date, fetched_at, product_name, category, brand, model_article, purchase_price,
-        organization_id
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        organization_id, article_from_model
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (account, snapshot_date, warehouse_id, sku_id) DO UPDATE SET
         warehouse_name = EXCLUDED.warehouse_name,
         article = EXCLUDED.article,
@@ -261,7 +261,8 @@ _SELSUP_STOCKS_UPSERT_SQL = """
         brand = EXCLUDED.brand,
         model_article = EXCLUDED.model_article,
         purchase_price = EXCLUDED.purchase_price,
-        organization_id = EXCLUDED.organization_id
+        organization_id = EXCLUDED.organization_id,
+        article_from_model = EXCLUDED.article_from_model
 """
 
 
@@ -278,11 +279,19 @@ class PostgresSelsupStockRepository:
                 account, snapshot_date, r.warehouse_id, r.warehouse_name, r.sku_id, r.article,
                 r.wb_size, r.ozon_article, r.cell_name, r.quantity, r.available_quantity,
                 r.calculated_quantity, r.modify_date, fetched_at, r.product_name, r.category, r.brand,
-                r.model_article, r.purchase_price, r.organization_id,
+                r.model_article, r.purchase_price, r.organization_id, r.article_from_model,
             )
             for r in rows
         ]
+        keys = [(snapshot_date, r.warehouse_id, r.sku_id) for r in rows]
         with self._conn.cursor() as cur:
+            # The day is replaced as a whole: a repeated run must not leave rows that moved to
+            # another cabinet (or dropped to zero) behind, or the same sku would be counted twice.
+            cur.execute("DELETE FROM selsup_stocks WHERE account = %s AND snapshot_date = %s", (account, snapshot_date))
+            cur.executemany(
+                "DELETE FROM selsup_stocks WHERE account <> %s AND snapshot_date = %s AND warehouse_id = %s AND sku_id = %s",
+                [(account, *key) for key in keys],
+            )
             cur.executemany(_SELSUP_STOCKS_UPSERT_SQL, params)
         self._conn.commit()
         return len(rows)

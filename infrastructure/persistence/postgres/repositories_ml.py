@@ -239,7 +239,7 @@ class PostgresArticleRepository:
             UNION SELECT offer_id FROM ozon_stocks
             UNION SELECT offer_id FROM ozon_orders
             UNION SELECT offer_id FROM ozon_prices
-            UNION SELECT article FROM selsup_stocks WHERE article IS NOT NULL
+            UNION SELECT article FROM selsup_stocks WHERE article IS NOT NULL AND NOT article_from_model
             UNION SELECT article FROM selsup_movements WHERE article IS NOT NULL
             UNION SELECT vendor_code FROM wb_funnel_daily WHERE vendor_code IS NOT NULL
             UNION SELECT article FROM supply_items WHERE article IS NOT NULL
