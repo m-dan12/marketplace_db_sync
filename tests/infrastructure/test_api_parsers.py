@@ -23,8 +23,9 @@ def test_wb_goods_expand_to_one_line_per_size_with_product_level_discount():
 def test_ozon_price_item():
     line = parse_price_item({
         "offer_id": "PT140/0-0-56/1", "product_id": 520675773,
-        "price": {"price": 602, "old_price": 1189, "min_price": 494, "marketing_seller_price": 602},
+        "price": {"price": 602, "old_price": 1189, "min_price": 494, "marketing_seller_price": 602, "net_price": 217},
     })
+    assert line.net_price == 217
     assert (line.offer_id, line.price, line.old_price, line.min_price) == ("PT140/0-0-56/1", 602, 1189, 494)
     assert parse_price_item({"offer_id": "a"}).price is None
 

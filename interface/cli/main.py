@@ -50,6 +50,11 @@ from infrastructure.sources.sheets.planning import (
     parse_fabrics,
     parse_quant_multiples,
 )
+from infrastructure.sources.sheets.pricing import (
+    COST_MODEL_SHEET,
+    WbPricingSheetSource,
+    parse_cost_models,
+)
 from infrastructure.sources.sheets.production import ProductionSheetSource
 from infrastructure.sources.wb.ads import WBAdsSource
 from infrastructure.sources.wb.funnel import WBFunnelSource
@@ -77,10 +82,12 @@ from infrastructure.persistence.postgres.repositories_supply_demand import (
 )
 from infrastructure.persistence.postgres.repositories_sheets import (
     PostgresArticleSpecRepository,
+    PostgresCostModelRepository,
     PostgresFabricRepository,
     PostgresFabricStockRepository,
     PostgresProductionRepository,
     PostgresQuantMultipleRepository,
+    PostgresWbArticlePricingRepository,
 )
 from interface.cli import ml_commands
 
@@ -190,6 +197,14 @@ def _sync_sheets(conn: psycopg.Connection) -> None:
     _run(SyncStocksUseCase(
         "sheet_fabric_stock", SheetTableSource(reader, planning, FABRIC_STOCK_SHEET, parse_fabric_stock),
         PostgresFabricStockRepository(conn), sync_run_repo), "all")
+    pricing = settings.PRICING_SPREADSHEET_ID
+    _run(SyncStocksUseCase(
+        "sheet_cost_models", SheetTableSource(reader, pricing, COST_MODEL_SHEET, parse_cost_models),
+        PostgresCostModelRepository(conn), sync_run_repo), "all")
+    pricing_source = WbPricingSheetSource(reader, pricing)
+    for account in cfg.ACCOUNTS:
+        _run(SyncOrdersUseCase(
+            "sheet_wb_pricing", pricing_source, PostgresWbArticlePricingRepository(conn), sync_run_repo), account)
 
 
 def _sync_baseline(conn: psycopg.Connection) -> None:

@@ -34,3 +34,5 @@ PROMOTIONS_CALENDAR_AHEAD_DAYS = 120
 PLANNING_SPREADSHEET_ID = "1cdx99nrElv08rygrDnWrFmnJviJXjnPxLkWZqSkhvJI"
 PRODUCTION_SPREADSHEET_ID = "1pBYf7pG2Yj-hL1Q5XYytbXkBP2xT2Lvv0TFrC-kLGxI"
 SUPPLY_PLAN_SPREADSHEET_ID = "1Bq5Jz6WNtoz38-E9JWjdRkE-s6EqVaq0dppxKpSFU70"
+# Pricing workbook: margin model (cost per model) and the price-range sheet of every WB cabinet.
+PRICING_SPREADSHEET_ID = "1OTuw6_ijELvc0GTsCKJcDuLKknx6dCQ5cm-mrya4Dos"

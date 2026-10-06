@@ -6,9 +6,11 @@ from datetime import date
 
 import pytest
 
-from domain.models import FabricStockLine, ProductionLine, QuantMultipleLine
+from domain.models import CostModelLine, FabricStockLine, ProductionLine, QuantMultipleLine, WbArticlePricingLine
 from infrastructure.persistence.postgres.connection import apply_schema, connect
 from infrastructure.persistence.postgres.repositories_sheets import (
+    PostgresCostModelRepository,
+    PostgresWbArticlePricingRepository,
     PostgresFabricStockRepository,
     PostgresProductionRepository,
     PostgresQuantMultipleRepository,
@@ -18,7 +20,7 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set"
 )
 
-TABLES = "production_lines production_line_log quant_multiples fabric_stock".split()
+TABLES = "production_lines production_line_log quant_multiples fabric_stock cost_models wb_article_pricing".split()
 
 
 @pytest.fixture()
@@ -136,3 +138,22 @@ def test_fabric_stock_is_a_snapshot_per_day_that_replaces_itself(conn):
     assert rows(conn, "SELECT snapshot_date, fabric_no, quantity_m FROM fabric_stock ORDER BY 1, 2") == [
         (d1, "110", 90), (d2, "110", 20),
     ]
+
+
+def test_cost_models_are_a_snapshot_per_day_and_pricing_is_the_latest_state(conn):
+    models = PostgresCostModelRepository(conn)
+    model = CostModelLine("/4-18-26/1 - перкаль", 164, "1 - перкаль", 6679, 1132.2, 0.55, 0.53, 3139)
+    models.save_snapshot("all", date(2026, 10, 6), [model])
+    models.save_snapshot("all", date(2026, 10, 6), [model])  # same day again: replaced
+    models.save_snapshot("all", date(2026, 10, 7), [CostModelLine(model.model_key, 170, "1 - перкаль", 6679, 1180.0, 0.55, 0.53, 3139)])
+    assert rows(conn, "SELECT snapshot_date, cost_total::float FROM cost_models ORDER BY 1") == [
+        (date(2026, 10, 6), 1132.2), (date(2026, 10, 7), 1180.0)]
+
+    pricing = PostgresWbArticlePricingRepository(conn)
+
+    def card(cost):
+        return WbArticlePricingLine(5, "PT1/4-18-26/1", "Сказка", "Пододеяльники", "/4-18-26/1", cost, 6679, 0.4, 0.45, 3139, 0.5, 0.45)
+
+    pricing.upsert("skazka", [card(300.0)])
+    pricing.upsert("skazka", [card(310.0)])
+    assert rows(conn, "SELECT category, cost::float FROM wb_article_pricing") == [("Пододеяльники", 310.0)]

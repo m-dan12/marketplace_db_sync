@@ -691,3 +691,41 @@ CREATE TABLE IF NOT EXISTS baseline_recommendation (
     computed_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (as_of, article)
 );
+
+ALTER TABLE ozon_prices ADD COLUMN IF NOT EXISTS net_price NUMERIC;
+
+-- Margin model of the pricing workbook: cost and price limits per product model,
+-- one snapshot per day (the fabric prices behind the cost change over time).
+CREATE TABLE IF NOT EXISTS cost_models (
+    snapshot_date DATE NOT NULL,
+    model_key TEXT NOT NULL,
+    fabric_price NUMERIC,
+    price_type TEXT,
+    base_price NUMERIC,
+    cost_total NUMERIC,
+    ozon_limit_discount NUMERIC,
+    wb_max_discount NUMERIC,
+    min_price NUMERIC,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (snapshot_date, model_key)
+);
+
+-- Every Wildberries card of a cabinet with brand, category, cost of its model and the price
+-- range, as the pricing workbook has them now (the latest state; history is in cost_models).
+CREATE TABLE IF NOT EXISTS wb_article_pricing (
+    account TEXT NOT NULL,
+    article TEXT NOT NULL,
+    nm_id BIGINT,
+    brand TEXT,
+    category TEXT,
+    model_key TEXT,
+    cost NUMERIC,
+    base_price NUMERIC,
+    range_start NUMERIC,
+    range_end NUMERIC,
+    limit_price NUMERIC,
+    limit_discount NUMERIC,
+    launch_discount NUMERIC,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (account, article)
+);

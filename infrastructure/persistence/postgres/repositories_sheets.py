@@ -9,10 +9,12 @@ import psycopg
 
 from domain.models import (
     ArticleSpecLine,
+    CostModelLine,
     FabricLine,
     FabricStockLine,
     ProductionLine,
     QuantMultipleLine,
+    WbArticlePricingLine,
 )
 
 
@@ -246,3 +248,58 @@ class PostgresFabricStockRepository:
             )
         self._conn.commit()
         return len(merged)
+
+
+class PostgresCostModelRepository:
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def save_snapshot(self, account: str, snapshot_date: date, rows: Sequence[CostModelLine]) -> int:
+        fetched_at = _now()
+        with self._conn.cursor() as cur:
+            cur.execute("DELETE FROM cost_models WHERE snapshot_date = %s", (snapshot_date,))
+            cur.executemany(
+                """
+                INSERT INTO cost_models (
+                    snapshot_date, model_key, fabric_price, price_type, base_price, cost_total,
+                    ozon_limit_discount, wb_max_discount, min_price, fetched_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (snapshot_date, r.model_key, r.fabric_price, r.price_type, r.base_price, r.cost_total,
+                     r.ozon_limit_discount, r.wb_max_discount, r.min_price, fetched_at)
+                    for r in rows
+                ],
+            )
+        self._conn.commit()
+        return len(rows)
+
+
+class PostgresWbArticlePricingRepository:
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def upsert(self, account: str, rows: Sequence[WbArticlePricingLine]) -> int:
+        fetched_at = _now()
+        with self._conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO wb_article_pricing (
+                    account, article, nm_id, brand, category, model_key, cost, base_price, range_start,
+                    range_end, limit_price, limit_discount, launch_discount, fetched_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (account, article) DO UPDATE SET
+                    nm_id = EXCLUDED.nm_id, brand = EXCLUDED.brand, category = EXCLUDED.category,
+                    model_key = EXCLUDED.model_key, cost = EXCLUDED.cost, base_price = EXCLUDED.base_price,
+                    range_start = EXCLUDED.range_start, range_end = EXCLUDED.range_end,
+                    limit_price = EXCLUDED.limit_price, limit_discount = EXCLUDED.limit_discount,
+                    launch_discount = EXCLUDED.launch_discount, fetched_at = EXCLUDED.fetched_at
+                """,
+                [
+                    (account, r.article, r.nm_id, r.brand, r.category, r.model_key, r.cost, r.base_price,
+                     r.range_start, r.range_end, r.limit_price, r.limit_discount, r.launch_discount, fetched_at)
+                    for r in rows
+                ],
+            )
+        self._conn.commit()
+        return len(rows)

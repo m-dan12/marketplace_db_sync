@@ -131,6 +131,7 @@ class OzonPriceLine:
     old_price: Optional[float]
     min_price: Optional[float]
     marketing_seller_price: Optional[float]
+    net_price: Optional[float] = None  # the seller's cost price, as set in the Ozon cabinet
 
 
 @dataclass(frozen=True)
@@ -359,3 +360,35 @@ class FabricStockLine:
     supplier: Optional[str]
     name: Optional[str]
     brand: Optional[str]
+
+
+@dataclass(frozen=True)
+class CostModelLine:
+    """One row of the margin model: cost and price limits of a product model
+    (size key + fabric type, e.g. '/4-18-26/1 - перкаль 220 с рисунком')."""
+    model_key: str
+    fabric_price: Optional[float]
+    price_type: Optional[str]
+    base_price: Optional[float]
+    cost_total: Optional[float]  # СЕБЕСТОИМОСТЬ ИТОГО
+    ozon_limit_discount: Optional[float]
+    wb_max_discount: Optional[float]
+    min_price: Optional[float]
+
+
+@dataclass(frozen=True)
+class WbArticlePricingLine:
+    """One Wildberries card in a cabinet's price-range sheet: brand and category
+    of the card, the cost of its model, base price and the working price range."""
+    nm_id: Optional[int]
+    article: str
+    brand: Optional[str]
+    category: Optional[str]
+    model_key: Optional[str]
+    cost: Optional[float]  # Себестоимость по модели
+    base_price: Optional[float]
+    range_start: Optional[float]  # working range of the discount
+    range_end: Optional[float]
+    limit_price: Optional[float]
+    limit_discount: Optional[float]
+    launch_discount: Optional[float]  # старт новинки

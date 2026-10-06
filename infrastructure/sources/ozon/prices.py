@@ -46,4 +46,5 @@ def parse_price_item(item: dict[str, Any]) -> OzonPriceLine:
         old_price=price.get("old_price"),
         min_price=price.get("min_price"),
         marketing_seller_price=price.get("marketing_seller_price"),
+        net_price=price.get("net_price"),
     )

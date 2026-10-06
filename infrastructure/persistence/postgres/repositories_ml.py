@@ -60,14 +60,15 @@ class PostgresWbPriceRepository:
 _OZON_PRICES_SQL = """
     INSERT INTO ozon_prices (
         account, snapshot_date, offer_id, product_id, price, old_price, min_price,
-        marketing_seller_price, fetched_at
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        marketing_seller_price, net_price, fetched_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (account, snapshot_date, offer_id) DO UPDATE SET
         product_id = EXCLUDED.product_id,
         price = EXCLUDED.price,
         old_price = EXCLUDED.old_price,
         min_price = EXCLUDED.min_price,
         marketing_seller_price = EXCLUDED.marketing_seller_price,
+        net_price = EXCLUDED.net_price,
         fetched_at = EXCLUDED.fetched_at
 """
 
@@ -83,7 +84,7 @@ class PostgresOzonPriceRepository:
         params = [
             (
                 account, snapshot_date, r.offer_id, r.product_id, r.price, r.old_price,
-                r.min_price, r.marketing_seller_price, fetched_at,
+                r.min_price, r.marketing_seller_price, r.net_price, fetched_at,
             )
             for r in rows
         ]

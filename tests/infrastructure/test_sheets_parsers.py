@@ -196,3 +196,41 @@ def test_a_sheet_that_parses_to_nothing_is_an_error_not_an_empty_load():
                               "book", "наличие ткани", parse_fabric_stock)
     with pytest.raises(SheetFormatError, match="nothing recognised"):
         source.fetch("all")
+
+
+def test_cost_models_are_read_from_the_fixed_columns():
+    from infrastructure.sources.sheets.pricing import parse_cost_models
+
+    header = ["", "ключ модели", "Цена ткани 1", "тип цены", "Базовая цена", "СЕБЕСТОИМОСТЬ ИТОГО"]
+    rows = [[], [], [], header, [],
+            [], ["", "/4-18-26/1 - перкаль 220 с рисунком", 164, "1 - перкаль 220 с рисунком", 6679, 1132.2, 0.55, 0.53, 3139],
+            ["", "служебная строка"]]
+    (model,) = parse_cost_models(rows)
+    assert (model.model_key, model.cost_total, model.base_price, model.min_price) == (
+        "/4-18-26/1 - перкаль 220 с рисунком", 1132.2, 6679, 3139)
+    assert (model.ozon_limit_discount, model.wb_max_discount) == (0.55, 0.53)
+
+
+def test_cost_models_refuse_a_moved_header():
+    from infrastructure.sources.sheets.common import SheetFormatError
+    from infrastructure.sources.sheets.pricing import parse_cost_models
+
+    with pytest.raises(SheetFormatError):
+        parse_cost_models([[], [], [], ["", "модель", "", "", "", ""]])
+
+
+def test_wb_pricing_reads_brand_category_cost_and_joins_the_model_key():
+    from infrastructure.sources.sheets.pricing import parse_wb_pricing
+
+    header = ["Бренд", "Категория", "Артикул WB", "Артикул продавца", "БАЗОВАЯ ЦЕНА", "начало рабочего диапазона",
+              "конец рабочего диапазона", "предельная цена", "предельная скидка", "старт новинки",
+              "Себестоимость по модели", "ключ", "тип цены"]
+    row = ["Мечта!", "Пододеяльники", "436625557", "MT4480/4-0-0/1PS", 2289, 0.4, 0.45, 1213, 0.47, 0.45, 319.68,
+           "/4-18-26/", "1 - перкаль 220 с рисунком"]
+    broken = ["Сказка", "Ткани для рукоделия", "1539975557", "PT400/20/20", "#DIV/0!", "", "", 643, "", "", 144.7, "", ""]
+    lines = parse_wb_pricing([header, row, broken, []], "диапазон")
+    assert [x.article for x in lines] == ["MT4480/4-0-0/1PS", "PT400/20/20"]
+    first = lines[0]
+    assert (first.nm_id, first.category, first.cost, first.base_price) == (436625557, "Пододеяльники", 319.68, 2289)
+    assert first.model_key == "/4-18-26/1 - перкаль 220 с рисунком"
+    assert lines[1].base_price is None and lines[1].model_key is None
