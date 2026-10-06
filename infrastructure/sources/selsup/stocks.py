@@ -52,11 +52,11 @@ class SelsupStocksSource:
                 )
                 # Rows with quantity == 0 are "phantom" zero remains — skip them.
                 items = [row for row in response.json() if row.get("quantity")]
-                sku_ids = {row.get("skuId") for row in items if row.get("skuId")}
-                products = self._product_info(client, headers, sku_ids)
+                product_ids = {pid for pid in map(_product_id, items) if pid}
+                products = self._product_info(client, headers, product_ids)
 
                 for row in items:
-                    info = products.get(row.get("skuId")) or {}
+                    info = products.get(_product_id(row)) or {}
                     account_key = self._organization_ids.get(info.get("organizationId"), OTHER_ACCOUNT)
                     by_account.setdefault(account_key, []).append(
                         _parse_stock_row(warehouse_id, warehouse_name, row, info)
@@ -64,11 +64,11 @@ class SelsupStocksSource:
         return by_account
 
     def _product_info(
-        self, client: httpx.Client, headers: dict[str, str], sku_ids: set[int]
+        self, client: httpx.Client, headers: dict[str, str], product_ids: set[int]
     ) -> dict[int, dict[str, Any]]:
-        """`product/find` rows by sku id: the cabinet (organizationId), name, category and brand."""
+        """`product/find` rows by product id: the cabinet (organizationId), name, category and brand."""
         info: dict[int, dict[str, Any]] = {}
-        ids = list(sku_ids)
+        ids = list(product_ids)
         for i in range(0, len(ids), _ORG_LOOKUP_BATCH_SIZE):
             chunk = ids[i : i + _ORG_LOOKUP_BATCH_SIZE]
             response = request_with_retry(
@@ -78,6 +78,12 @@ class SelsupStocksSource:
             for row in response.json().get("rows", []):
                 info[row.get("id")] = row
         return info
+
+
+def _product_id(row: dict[str, Any]) -> Optional[int]:
+    """`product/find` is keyed by the product id. It equals `skuId` for most rows, but not for
+    sets (fabric rolls: skuId 163491 -> product 171707), so the id inside the row comes first."""
+    return ((row.get("sku") or {}).get("product") or {}).get("id") or row.get("skuId")
 
 
 def _parse_stock_row(
