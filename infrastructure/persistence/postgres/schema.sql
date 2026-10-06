@@ -253,6 +253,8 @@ CREATE TABLE IF NOT EXISTS backfill_files (
 );
 
 -- Stock by place, one row per (account, article, observation date, place).
+-- wb_qty / ozon_qty are the marketplaces' own warehouses (FBO) only, as in the analyst's sheet;
+-- the seller's stock kept on marketplace warehouses is wb_fbs_qty / ozon_fbs_qty.
 -- Observation date = the date the snapshot was taken.
 --
 -- WB's stock report does not list articles that are out of stock at all, so
@@ -264,13 +266,16 @@ CREATE TABLE IF NOT EXISTS backfill_files (
 -- Caveat: a catalogue includes archived/inactive cards; filter by articles
 -- that ever had stock or orders before reading the out-of-stock flags.
 CREATE OR REPLACE VIEW stock_by_place_daily AS
-SELECT account, snapshot_date, vendor_code AS article, 'wb'::text AS place,
+SELECT account, snapshot_date, vendor_code AS article,
+       -- 'wb' is the stock in WB's own warehouses (the analyst's "ФБО", the one the sheet counts);
+       -- the other warehouses in the report hold the seller's own stock ('wb_fbs').
+       CASE WHEN warehouse_name = 'Склад WB РФ' THEN 'wb' ELSE 'wb_fbs' END AS place,
        SUM(quantity) AS quantity
 FROM wb_stocks
 WHERE vendor_code IS NOT NULL
   AND warehouse_name NOT LIKE 'В пути%'
   AND warehouse_name <> 'Всего находится на складах'  -- WB's own total row
-GROUP BY account, snapshot_date, vendor_code
+GROUP BY account, snapshot_date, vendor_code, 4
 UNION ALL
 SELECT account, snapshot_date, offer_id, 'ozon_' || stock_type, SUM(present)
 FROM ozon_stocks
@@ -311,7 +316,7 @@ SELECT DISTINCT account, snapshot_date, 'ozon_prices' FROM ozon_prices;
 CREATE OR REPLACE VIEW article_stock_daily AS
 SELECT account, article, snapshot_date,
        COALESCE(SUM(quantity) FILTER (WHERE place = 'wb'), 0) AS wb_qty,
-       COALESCE(SUM(quantity) FILTER (WHERE place LIKE 'ozon%'), 0) AS ozon_qty,
+       COALESCE(SUM(quantity) FILTER (WHERE place = 'ozon_fbo'), 0) AS ozon_qty,
        COALESCE(SUM(quantity) FILTER (WHERE place = 'selsup_fbs'), 0) AS selsup_fbs_qty,
        COALESCE(SUM(quantity) FILTER (WHERE place = 'selsup_kvant'), 0) AS selsup_kvant_qty,
        BOOL_OR(place = 'wb') AS wb_listed,
@@ -319,7 +324,9 @@ SELECT account, article, snapshot_date,
        (BOOL_OR(place = 'wb')
             AND COALESCE(SUM(quantity) FILTER (WHERE place = 'wb'), 0) <= 0) AS wb_out,
        (BOOL_OR(place LIKE 'ozon%')
-            AND COALESCE(SUM(quantity) FILTER (WHERE place LIKE 'ozon%'), 0) <= 0) AS ozon_out
+            AND COALESCE(SUM(quantity) FILTER (WHERE place = 'ozon_fbo'), 0) <= 0) AS ozon_out,
+       COALESCE(SUM(quantity) FILTER (WHERE place = 'wb_fbs'), 0) AS wb_fbs_qty,
+       COALESCE(SUM(quantity) FILTER (WHERE place = 'ozon_fbs'), 0) AS ozon_fbs_qty
 FROM stock_by_place_daily
 GROUP BY account, article, snapshot_date;
 

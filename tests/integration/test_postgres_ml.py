@@ -145,7 +145,7 @@ def test_movements_view_resolves_account_and_missing_article_through_stocks(conn
 
 def test_dim_article_built_from_every_table(conn):
     PostgresWbStockRepository(conn).save_snapshot(
-        "skazka", date(2026, 9, 30), [WbStockLine(1, "PT5930/6-17-17/1", "b", "0", 1.0, "Тула", 3)]
+        "skazka", date(2026, 9, 30), [WbStockLine(1, "PT5930/6-17-17/1", "b", "0", 1.0, "Склад WB РФ", 3)]
     )
     PostgresOzonStockRepository(conn).save_snapshot(
         "skazka", date(2026, 9, 30), [OzonStockLine("151/0-0-25/1", 1, 2, "fbo", 1, 0)]
@@ -169,11 +169,11 @@ def test_dim_article_built_from_every_table(conn):
 def test_article_stock_daily_view_sums_places_and_flags_out_of_stock(conn):
     day = date(2026, 9, 30)
     PostgresWbStockRepository(conn).save_snapshot("skazka", day, [
-        WbStockLine(1, "A", "b1", "0", 1.0, "Тула", 5),
-        WbStockLine(1, "A", "b1", "0", 1.0, "Коледино", 2),
+        WbStockLine(1, "A", "b1", "0", 1.0, "Склад WB РФ", 5),
+        WbStockLine(1, "A", "b1", "0", 1.0, "Коледино", 2),  # seller-managed warehouse: not FBO
         WbStockLine(1, "A", "b1", "0", 1.0, "Всего находится на складах", 7),  # WB's own total row
         WbStockLine(1, "A", "b1", "0", 1.0, "В пути до получателей", 4),
-        WbStockLine(2, "B", "b2", "0", 1.0, "Тула", 0),  # listed with zero -> out of stock
+        WbStockLine(2, "B", "b2", "0", 1.0, "Склад WB РФ", 0),  # listed with zero -> out of stock
     ])
     PostgresOzonStockRepository(conn).save_snapshot("skazka", day, [
         OzonStockLine("A", 1, 1, "fbo", 3, 0),
@@ -186,12 +186,12 @@ def test_article_stock_daily_view_sums_places_and_flags_out_of_stock(conn):
     ])
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT article, wb_qty, ozon_qty, selsup_fbs_qty, selsup_kvant_qty, wb_out, ozon_out "
-            "FROM article_stock_daily ORDER BY article"
+            "SELECT article, wb_qty, ozon_qty, selsup_fbs_qty, selsup_kvant_qty, wb_out, ozon_out, "
+            "wb_fbs_qty, ozon_fbs_qty FROM article_stock_daily ORDER BY article"
         )
         assert cur.fetchall() == [
-            ("A", 7, 4, 6, 9, False, False),
-            ("B", 0, 0, 0, 0, True, True),
+            ("A", 5, 3, 6, 9, False, False, 2, 1),
+            ("B", 0, 0, 0, 0, True, True, 0, 0),
         ]
         cur.execute("SELECT COUNT(*) FROM stock_days WHERE snapshot_date = %s", (day,))
         assert cur.fetchone()[0] == 3  # wb, ozon, selsup
@@ -201,7 +201,7 @@ def test_wb_article_missing_from_the_stock_report_is_out_of_stock_when_catalogue
     """WB's report omits articles with no stock; the price snapshot is the catalogue."""
     day = date(2026, 9, 30)
     PostgresWbStockRepository(conn).save_snapshot(
-        "skazka", day, [WbStockLine(1, "IN", "b", "0", 1.0, "Тула", 5)]
+        "skazka", day, [WbStockLine(1, "IN", "b", "0", 1.0, "Склад WB РФ", 5)]
     )
     PostgresWbPriceRepository(conn).save_snapshot("skazka", day, [
         WbPriceLine(1, "IN", "0", 10, 100, 0, 100),
@@ -225,7 +225,7 @@ def test_out_of_stock_days_count_only_listed_days_in_the_last_30(conn):
     wb = PostgresWbStockRepository(conn)
 
     def snapshot(day, qty):
-        wb.save_snapshot("skazka", day, [WbStockLine(1, "A", "b", "0", 1.0, "Тула", qty)])
+        wb.save_snapshot("skazka", day, [WbStockLine(1, "A", "b", "0", 1.0, "Склад WB РФ", qty)])
 
     snapshot(date(2026, 8, 1), 0)    # older than 30 days before the latest snapshot: ignored
     snapshot(date(2026, 9, 28), 0)
