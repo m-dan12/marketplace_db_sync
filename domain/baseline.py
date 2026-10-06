@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Mapping, Optional
 
 # Categories (column H) for which the need is rounded to the packing multiple.
 ROUNDED_TO_QUANT_CATEGORIES = frozenset({"рюши", "постельное", "микс"})
@@ -145,3 +145,61 @@ def calculate(inp: BaselineInput) -> BaselineResult:
         need=need,
         need_in_quants=_divide(need, inp.quant or 0),  # BJ
     )
+
+
+@dataclass(frozen=True)
+class ArticleFacts:
+    """What the database knows about one article on the planning date."""
+
+    article: str
+    category: str
+    wb: ChannelFacts
+    ozon: ChannelFacts
+    stock_fbs: float
+    stock_kvant: float
+    in_production_sklad: float
+    in_production_kvant: float
+
+
+@dataclass(frozen=True)
+class BaselineRow:
+    article: str
+    inputs: BaselineInput
+    result: BaselineResult
+
+
+def quant_key(article: str) -> str:
+    """Key of the packing-multiple table (sheet column BZ), e.g. 'PT5930/6-17-17/1' -> '/6-17-17/'.
+    The variant's first digit joins the key when it is '0' and the size has two dashes."""
+    suffix = "GIFT" if "GIFT" in article else ""
+    if article.count("/") >= 2:
+        first = article.index("/")
+        second = article.index("/", first + 1)
+        end = second + 1
+        if article.count("-") == 2 and article[second + 1 : second + 2] == "0":
+            end += 1
+        return article[first:end] + suffix
+    if "/" in article:
+        return article[article.index("/") :] + suffix
+    return article + suffix
+
+
+def build_input(facts: ArticleFacts, quants: Mapping[str, float]) -> BaselineInput:
+    return BaselineInput(
+        wb=facts.wb,
+        ozon=facts.ozon,
+        stock_fbs=facts.stock_fbs,
+        stock_kvant=facts.stock_kvant,
+        in_production_sklad=facts.in_production_sklad,
+        in_production_kvant=facts.in_production_kvant,
+        quant=quants.get(quant_key(facts.article)),
+        category=facts.category,
+    )
+
+
+def calculate_all(facts: list[ArticleFacts], quants: Mapping[str, float]) -> list[BaselineRow]:
+    rows = []
+    for item in facts:
+        inputs = build_input(item, quants)
+        rows.append(BaselineRow(item.article, inputs, calculate(inputs)))
+    return rows

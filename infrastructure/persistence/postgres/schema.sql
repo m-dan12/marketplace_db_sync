@@ -665,3 +665,22 @@ CREATE TABLE IF NOT EXISTS fabric_stock (
     fetched_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (snapshot_date, fabric_no, supplier)
 );
+
+-- Nightly output of the analyst's formula (domain/baseline.py): the baseline
+-- any model has to beat, and later a source of labels. `inputs` keeps every
+-- number the calculation saw, so a row can be re-checked at any time.
+CREATE TABLE IF NOT EXISTS baseline_recommendation (
+    as_of DATE NOT NULL,
+    article TEXT NOT NULL,
+    category TEXT,
+    quant NUMERIC,
+    wb_speed NUMERIC,
+    ozon_speed NUMERIC,
+    wb_need NUMERIC,
+    ozon_need NUMERIC,
+    need NUMERIC,
+    need_quants NUMERIC,
+    inputs JSONB NOT NULL,
+    computed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (as_of, article)
+);

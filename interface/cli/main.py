@@ -14,6 +14,7 @@ import traceback
 import psycopg
 from dotenv import load_dotenv
 
+from application.use_cases.baseline_source import BaselineSource
 from application.use_cases.sync_orders import SyncOrdersUseCase
 from application.use_cases.sync_sales import SyncSalesUseCase
 from application.use_cases.sync_stocks import SyncStocksUseCase
@@ -58,6 +59,10 @@ from infrastructure.sources.wb.promotions import WBPromotionsSource
 from infrastructure.sources.wb.supplies import WBSuppliesSource
 from infrastructure.sources.wb.sales import WBSalesSource
 from infrastructure.sources.wb.stocks import WBStocksSource
+from infrastructure.persistence.postgres.repositories_baseline import (
+    PostgresBaselineFactsReader,
+    PostgresBaselineRepository,
+)
 from infrastructure.persistence.postgres.repositories_ml import (
     PostgresOzonPriceRepository,
     PostgresSelsupMovementRepository,
@@ -187,6 +192,13 @@ def _sync_sheets(conn: psycopg.Connection) -> None:
         PostgresFabricStockRepository(conn), sync_run_repo), "all")
 
 
+def _sync_baseline(conn: psycopg.Connection) -> None:
+    """The analyst's formula over what the other sources just loaded."""
+    _run(SyncStocksUseCase(
+        "baseline", BaselineSource(PostgresBaselineFactsReader(conn)),
+        PostgresBaselineRepository(conn), PostgresSyncRunRepository(conn)), "all")
+
+
 def cmd_sync(args: argparse.Namespace) -> None:
     accounts = _resolve_accounts(args.account)
     conn = connect(os.environ["DATABASE_URL"])
@@ -204,6 +216,9 @@ def cmd_sync(args: argparse.Namespace) -> None:
         if args.source in ("sheets", "all"):
             logger.info("=== Sheets ===")
             _sync_sheets(conn)
+        if args.source in ("baseline", "all"):
+            logger.info("=== Baseline ===")
+            _sync_baseline(conn)
     finally:
         conn.close()
 
@@ -229,7 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync_parser = sub.add_parser("sync", help="Pull data from marketplace APIs into Postgres")
-    sync_parser.add_argument("source", choices=["wb", "ozon", "selsup", "sheets", "all"])
+    sync_parser.add_argument("source", choices=["wb", "ozon", "selsup", "sheets", "baseline", "all"])
     sync_parser.add_argument("--account", default="all", help="account key, or 'all' (default)")
     sync_parser.set_defaults(func=cmd_sync)
 

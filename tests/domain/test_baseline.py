@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from domain.baseline import BaselineInput, ChannelFacts, calculate, round_half_away
+from domain.baseline import BaselineInput, ChannelFacts, calculate, quant_key, round_half_away
 
 GOLDEN = json.loads((Path(__file__).parent.parent / "fixtures" / "planning_golden.json").read_text(encoding="utf-8"))
 
@@ -64,3 +64,15 @@ def test_need_is_reduced_by_own_warehouses_and_floored_at_zero():
 def test_need_rounded_to_quant_only_for_listed_categories():
     assert calculate(_simple(quant=8, category="постельное")).need == 32
     assert calculate(_simple(quant=8, category="другое")).need == 30
+
+
+@pytest.mark.parametrize("article, key", [
+    ("PT5930/6-17-17/1", "/6-17-17/"),
+    ("5930/6-17-17/01", "/6-17-17/0"),
+    ("5930/6-17/01", "/6-17/"),
+    ("PT5930/6-17", "/6-17"),
+    ("PT140", "PT140"),
+    ("PT5930/6-17-17/1GIFT", "/6-17-17/GIFT"),
+])
+def test_quant_key(article, key):
+    assert quant_key(article) == key
