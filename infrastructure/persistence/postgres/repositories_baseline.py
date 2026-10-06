@@ -12,8 +12,9 @@ from domain.baseline import ArticleFacts, BaselineRow, ChannelFacts
 
 # Sales windows end the day before the planning date (the night run sees yesterday's last order).
 # Articles seen anywhere (sales, stock, production in progress) are planned.
-# Stock comes from the newest snapshot not after the planning date; "days without stock"
-# are counted over the 30 snapshots up to it, and across cabinets the worst one counts.
+# Stock comes from the newest snapshot not after the planning date. "Days without stock" is 0
+# on purpose: the sheet's column for it is empty in practice (8 days over 18,000 rows), so its
+# speeds are plain sales / 30; the real counts are in the view out_of_stock_days_30.
 # Production in progress = every task that is not yet released or closed, whatever its kind
 # (the sheet "в производстве" does the same).
 _FACTS_SQL = """
@@ -36,18 +37,6 @@ stock AS (
     FROM article_stock_daily a, snap WHERE a.snapshot_date = snap.d
     GROUP BY a.article
 ),
-out_days AS (
-    SELECT article, MAX(wb_out_days) AS wb, MAX(ozon_out_days) AS ozon
-    FROM (
-        SELECT a.account, a.article,
-               COUNT(*) FILTER (WHERE wb_out) AS wb_out_days,
-               COUNT(*) FILTER (WHERE ozon_out) AS ozon_out_days
-        FROM article_stock_daily a, snap
-        WHERE a.snapshot_date > snap.d - 30 AND a.snapshot_date <= snap.d
-        GROUP BY a.account, a.article
-    ) per_account
-    GROUP BY article
-),
 production AS (
     SELECT article,
            COALESCE(SUM(quantity) FILTER (WHERE direction = 'wb'), 0) AS wb,
@@ -66,16 +55,15 @@ planned AS (
 SELECT p.article,
        COALESCE(sp.purpose, CASE WHEN LENGTH(p.article) < 7 THEN 'тдр' ELSE '' END),
        COALESCE(sw.s7, 0), COALESCE(sw.s30, 0), COALESCE(sw.sp30, 0),
-       COALESCE(od.wb, 0), COALESCE(st.wb, 0), COALESCE(pr.wb, 0),
+       0, COALESCE(st.wb, 0), COALESCE(pr.wb, 0),
        COALESCE(so.s7, 0), COALESCE(so.s30, 0), COALESCE(so.sp30, 0),
-       COALESCE(od.ozon, 0), COALESCE(st.ozon, 0), COALESCE(pr.ozon, 0),
+       0, COALESCE(st.ozon, 0), COALESCE(pr.ozon, 0),
        COALESCE(st.fbs, 0), COALESCE(st.kvant, 0), COALESCE(pr.sklad, 0), COALESCE(pr.kvant, 0)
 FROM planned p
 LEFT JOIN article_specs sp ON sp.article = p.article
 LEFT JOIN sales sw ON sw.article = p.article AND sw.marketplace = 'wb'
 LEFT JOIN sales so ON so.article = p.article AND so.marketplace = 'ozon'
 LEFT JOIN stock st ON st.article = p.article
-LEFT JOIN out_days od ON od.article = p.article
 LEFT JOIN production pr ON pr.article = p.article
 ORDER BY p.article
 """

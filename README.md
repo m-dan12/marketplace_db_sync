@@ -67,7 +67,7 @@ cp .env.example .env   # заполнить реальными секретам�
 ## Использование
 
 ```
-python -m interface.cli.main sync <wb|ozon|selsup|sheets|all> [--account <name|all>]
+python -m interface.cli.main sync <wb|ozon|selsup|sheets|baseline|all> [--account <name|all>]
 python -m interface.cli.main status [--limit N]
 python -m interface.cli.main backfill [--kinds K ...] [--account A] [--force] [--orders-mode sparse|all] [--max-files N]
 python -m interface.cli.main api-backfill <wb_supplies|ozon_supplies|wb_promotions|wb_funnel> [--account A] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
@@ -95,7 +95,10 @@ python -m interface.cli.main coverage
   Производство перечитывается целиком; исчезнувшая строка помечается удалённой,
   а не стирается, а если лист пришёл «обрезанным» (меньше половины известных
   строк), загрузка отклоняется. Лист, у которого переименовали колонку, тоже
-  отклоняется: лучше ошибка, чем сдвинутые данные.
+  отклоняется: лучше ошибка, чем сдвинутые данные;
+- **расчёт аналитика** (`sync baseline`, идёт последним): формула листа «планирование» как код
+  (`domain/baseline.py`) считает по каждому артикулу, сколько шить для WB и Ozon, и пишет
+  результат вместе со входными числами в `baseline_recommendation`.
 
 `sync` тянет фиксированное окно данных и делает upsert; схема Postgres
 (`infrastructure/persistence/postgres/schema.sql`) применяется
