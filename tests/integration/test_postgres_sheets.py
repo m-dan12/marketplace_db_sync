@@ -147,6 +147,32 @@ def test_lead_time_summary_uses_valid_recent_lines_per_workshop(conn):
                       "FROM lead_times_by_workshop_v") == [("Солях", 2, 35, 22)]
 
 
+def test_pickup_batches_group_tasks_of_a_workshop_shipped_on_one_day(conn):
+    done = dict(status="выпущено", status_group="released", week_start=date(2026, 8, 3),
+                fact_accept_date=date(2026, 9, 1))
+    PostgresProductionRepository(conn).upsert("all", [
+        line("a", **done, task_key="t1", fact_quantity=10, fact_ship_date=date(2026, 8, 20)),
+        line("b", **{**done, "week_start": date(2026, 8, 10)}, task_key="t2", fact_quantity=5,
+             fact_ship_date=date(2026, 8, 20)),
+        line("c", **done, task_key="t3", fact_quantity=7, fact_ship_date=date(2026, 8, 27)),
+    ])
+    assert rows(conn, "SELECT ship_date, tasks, pieces, fastest_task_days, slowest_task_days, spread_days "
+                      "FROM shipment_batches_v ORDER BY ship_date") == [
+        (date(2026, 8, 20), 2, 15, 10, 17, 7),
+        (date(2026, 8, 27), 1, 7, 24, 24, 0),
+    ]
+
+
+def test_ready_wait_splits_sewing_from_waiting_for_pickup(conn):
+    repo = PostgresProductionRepository(conn)
+    repo.upsert("all", [line("a"), line("b")])
+    repo.upsert("all", [line("a", status="готово,не вывезено", status_group="ready"), line("b")])
+    repo.upsert("all", [line("a", status="выпущено", status_group="released",
+                             fact_ship_date=date.today() + timedelta(days=3)), line("b")])
+    ready = rows(conn, "SELECT row_key, ready_date, days_waiting_pickup FROM ready_wait_v")
+    assert ready == [("a", date.today(), 3)]  # b never reached "ready"
+
+
 def test_quant_multiples_upsert_updates_the_multiple(conn):
     repo = PostgresQuantMultipleRepository(conn)
     first = QuantMultipleLine("/6-17-17/", "КПБ Евро", 9.58, 5, 3, None, None, None, 5)

@@ -607,6 +607,8 @@ CREATE INDEX IF NOT EXISTS ix_production_line_log_row ON production_line_log (ro
 -- Current lines with the kind of work: sewing, a transfer between our warehouse
 -- and a marketplace, or a "подсортировка" (re-sorting stock already made).
 -- (the lead-time views further down depend on it)
+DROP VIEW IF EXISTS ready_wait_v;
+DROP VIEW IF EXISTS shipment_batches_v;
 DROP VIEW IF EXISTS lead_times_by_workshop_v;
 DROP VIEW IF EXISTS lead_times_v;
 DROP VIEW IF EXISTS production_lines_v;
@@ -650,7 +652,7 @@ CREATE TABLE IF NOT EXISTS article_specs (
 -- the warehouse. A line is `is_valid` when both dates exist, are in that order and the whole
 -- way took at most 120 days (the sheet has typos in dates; ~1% of lines fail this).
 CREATE VIEW lead_times_v AS
-SELECT p.row_key, p.article, p.workshop, p.brand, p.direction, p.region, s.purpose AS category,
+SELECT p.row_key, p.task_key, p.article, p.workshop, p.brand, p.direction, p.region, s.purpose AS category,
        p.quantity, p.fact_quantity, p.week_start, p.fact_ship_date AS ship_date,
        p.fact_accept_date AS accept_date,
        p.fact_ship_date - p.week_start AS days_to_ship,
@@ -675,6 +677,33 @@ SELECT workshop, brand, COUNT(*) AS lines, SUM(quantity) AS pieces,
 FROM lead_times_v
 WHERE is_valid AND accept_date >= CURRENT_DATE - 180
 GROUP BY workshop, brand;
+
+-- Logisticians collect several tasks of a workshop and take them out in one go, so the way from
+-- the week start to the pickup is sewing plus waiting. A pickup = workshop + ship date. Its
+-- fastest task bounds the real sewing time of the others (they were done at most that late).
+CREATE VIEW shipment_batches_v AS
+SELECT workshop, ship_date, COUNT(DISTINCT task_key) AS tasks, COUNT(*) AS lines,
+       SUM(fact_quantity) AS pieces, MIN(days_to_ship) AS fastest_task_days,
+       MAX(days_to_ship) AS slowest_task_days,
+       MAX(days_to_ship) - MIN(days_to_ship) AS spread_days
+FROM lead_times_v
+WHERE is_valid
+GROUP BY workshop, ship_date;
+
+-- Sewing and waiting for pickup apart. "Ready" is the moment the sheet first showed
+-- «готово,не вывезено» for the line (production_line_log, kept since 2026-10-03), so only lines
+-- that went through that status after the logging began are here; the table fills up over time.
+CREATE VIEW ready_wait_v AS
+SELECT p.row_key, p.task_key, p.article, p.workshop, p.brand, p.week_start,
+       r.ready_at::date AS ready_date, p.fact_ship_date AS ship_date,
+       r.ready_at::date - p.week_start AS days_to_ready,
+       p.fact_ship_date - r.ready_at::date AS days_waiting_pickup
+FROM production_lines_v p
+JOIN (SELECT row_key, MIN(changed_at) AS ready_at
+      FROM production_line_log
+      WHERE event = 'changed' AND after->>'status' LIKE 'готово%'
+      GROUP BY row_key) r USING (row_key)
+WHERE p.kind = 'sewing';
 
 
 CREATE TABLE IF NOT EXISTS dim_fabric (
