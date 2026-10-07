@@ -10,6 +10,7 @@ import psycopg
 from domain.models import (
     ArticleSpecLine,
     CostModelLine,
+    FabricInvoiceLine,
     FabricLine,
     FabricReceiptLine,
     FabricStockLine,
@@ -298,6 +299,35 @@ class PostgresFabricReceiptRepository:
                     (r.sheet, r.sheet_row, r.week_start, r.task_number, r.task_text, r.received_date, r.workshop,
                      r.supplier_text, r.price, r.nomenclature, r.meters, r.amount, r.document, r.fabric_no,
                      r.fabric_name, r.brand, fetched_at)
+                    for r in rows
+                ],
+            )
+        self._conn.commit()
+        return len(rows)
+
+
+class PostgresFabricInvoiceRepository:
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def upsert(self, account: str, rows: Sequence[FabricInvoiceLine]) -> int:
+        """Replaces every sheet that is in `rows`; sheets not read this time stay as they were."""
+        fetched_at = _now()
+        sheets = sorted({r.sheet for r in rows})
+        with self._conn.cursor() as cur:
+            cur.execute("DELETE FROM fabric_invoices WHERE sheet = ANY(%s)", (sheets,))
+            cur.executemany(
+                """
+                INSERT INTO fabric_invoices (
+                    sheet, sheet_row, week_start, task_number, received_date, workshop, supplier_text,
+                    meters, amount, defect_status, claim_no, claim_meters, claim_amount, claim_status,
+                    compensation_date, fetched_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (r.sheet, r.sheet_row, r.week_start, r.task_number, r.received_date, r.workshop,
+                     r.supplier_text, r.meters, r.amount, r.defect_status, r.claim_no, r.claim_meters,
+                     r.claim_amount, r.claim_status, r.compensation_date, fetched_at)
                     for r in rows
                 ],
             )

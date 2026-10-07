@@ -392,6 +392,27 @@ class FabricReceiptLine:
 
 
 @dataclass(frozen=True)
+class FabricInvoiceLine:
+    """An invoice row of a weekly "План поставок" sheet: what came to the workshop in one delivery
+    and what was found wrong with it (defect status, claim to the supplier and its outcome)."""
+    sheet: str
+    sheet_row: int
+    week_start: date
+    task_number: Optional[str]
+    received_date: date
+    workshop: Optional[str]
+    supplier_text: Optional[str]
+    meters: Optional[float]
+    amount: Optional[float]
+    defect_status: Optional[str]  # 'без брака', 'брак', ...
+    claim_no: Optional[str]
+    claim_meters: Optional[float]
+    claim_amount: Optional[float]
+    claim_status: Optional[str]
+    compensation_date: Optional[date]
+
+
+@dataclass(frozen=True)
 class CostModelLine:
     """One row of the margin model: cost and price limits of a product model
     (size key + fabric type, e.g. '/4-18-26/1 - перкаль 220 с рисунком')."""

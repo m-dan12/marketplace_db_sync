@@ -833,6 +833,30 @@ CREATE TABLE IF NOT EXISTS fabric_receipts (
 CREATE INDEX IF NOT EXISTS ix_fabric_receipts_received ON fabric_receipts (received_date);
 CREATE INDEX IF NOT EXISTS ix_fabric_receipts_fabric ON fabric_receipts (fabric_no);
 
+-- Invoice rows of the same sheets with the defect / claim cells (the columns T-Y of the sheet).
+-- Only a part of the weeks fills them in (claims are typed by hand), so a NULL is "not recorded".
+CREATE TABLE IF NOT EXISTS fabric_invoices (
+    id BIGSERIAL PRIMARY KEY,
+    sheet TEXT NOT NULL,
+    sheet_row INT NOT NULL,
+    week_start DATE NOT NULL,
+    task_number TEXT,
+    received_date DATE NOT NULL,
+    workshop TEXT,
+    supplier_text TEXT,
+    meters NUMERIC,
+    amount NUMERIC,
+    defect_status TEXT,
+    claim_no TEXT,
+    claim_meters NUMERIC,
+    claim_amount NUMERIC,
+    claim_status TEXT,
+    compensation_date DATE,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (sheet, sheet_row)
+);
+CREATE INDEX IF NOT EXISTS ix_fabric_invoices_received ON fabric_invoices (received_date);
+
 -- Fabric of a task and what came of it. Tasks are matched by the number in the text ('№38_00058',
 -- used since week 32 of 2026 in both the supply-plan sheets and the production table); earlier
 -- weeks have no task number in the supply-plan sheets, so they have no row here. `days_fabric_to_ship`

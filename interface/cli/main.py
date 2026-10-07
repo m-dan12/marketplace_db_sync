@@ -88,6 +88,7 @@ from infrastructure.persistence.postgres.repositories_sheets import (
     PostgresArticleSpecRepository,
     PostgresCostModelRepository,
     PostgresFabricRepository,
+    PostgresFabricInvoiceRepository,
     PostgresFabricReceiptRepository,
     PostgresFabricStockRepository,
     PostgresProductionRepository,
@@ -208,9 +209,12 @@ def _sync_sheets(conn: psycopg.Connection) -> None:
         "sheet_fabric_stock", SheetTableSource(reader, planning, FABRIC_STOCK_SHEET, parse_fabric_stock),
         PostgresFabricStockRepository(conn), sync_run_repo), "all")
     # About 90 weekly sheets are read one by one (a pause between them), so this goes after the quick ones.
+    receipts_source = FabricReceiptsSheetSource(reader, settings.SUPPLY_PLAN_SPREADSHEET_ID)
     _run(SyncOrdersUseCase(
-        "sheet_fabric_receipts", FabricReceiptsSheetSource(reader, settings.SUPPLY_PLAN_SPREADSHEET_ID),
-        PostgresFabricReceiptRepository(conn), sync_run_repo), "all")
+        "sheet_fabric_receipts", receipts_source, PostgresFabricReceiptRepository(conn), sync_run_repo), "all")
+    # the second source takes the already read sheets, no second pass over the API
+    _run(SyncOrdersUseCase(
+        "sheet_fabric_invoices", receipts_source.invoices(), PostgresFabricInvoiceRepository(conn), sync_run_repo), "all")
     pricing = settings.PRICING_SPREADSHEET_ID
     _run(SyncStocksUseCase(
         "sheet_cost_models", SheetTableSource(reader, pricing, COST_MODEL_SHEET, parse_cost_models),

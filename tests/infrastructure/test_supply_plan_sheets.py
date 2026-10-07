@@ -3,7 +3,12 @@ from datetime import date
 import pytest
 
 from infrastructure.sources.sheets.common import SheetFormatError
-from infrastructure.sources.sheets.supply_plan import FabricReceiptsSheetSource, parse_week, week_start_of
+from infrastructure.sources.sheets.supply_plan import (
+    FabricReceiptsSheetSource,
+    parse_invoices,
+    parse_week,
+    week_start_of,
+)
 
 START = date(2026, 9, 21)
 HEADER = ["Дата вх,", "цех", "цена", "номенклатура поставщика/ № док", "метраж", "суммаподок", "накладная", "",
@@ -99,3 +104,49 @@ def test_source_reads_only_weekly_sheets():
 def test_source_refuses_a_workbook_without_weekly_sheets():
     with pytest.raises(SheetFormatError):
         FabricReceiptsSheetSource(FakeBook({"свод 2026": []}), "book", pause_seconds=0).fetch("all")
+
+
+CLAIM_HEADER = HEADER + [""] * 8 + ["статус", "претензия", "метраж претензии", "сумма претензии", "статус претензии",
+                                    "дата компенсации"]
+
+
+def claim_row(first_cells, **cells):
+    row = padded(*first_cells, size=25)
+    for column, value in cells.items():
+        row[int(column[1:])] = value
+    return row
+
+
+WEEK_WITH_CLAIMS = [
+    ["неделя 25"],
+    CLAIM_HEADER,
+    padded("номер задания", "18"),
+    claim_row(["15.06.2026", "Солях", "", "белтекс профтекс УПД 5", 480, 65000], c19="брак", c20="№178", c21=63,
+              c22=9954, c23="пр. отправлена 19.06", c24="25.06.2026"),
+    claim_row(["", "", 135.58, "рис 1", 480, 65000, "", "", "1", "ткань", "Сказка"], c19="не брать", c20="не брать"),
+    claim_row(["17.06.2026", "Инна", "", "протекс", 60, 9000], c19="без брака", c20=0, c21=0, c22=0, c23=0),
+]
+
+
+def test_invoices_carry_the_defect_and_claim_cells():
+    invoices = parse_invoices(WEEK_WITH_CLAIMS, "15.06-21.06 26", date(2026, 6, 15))
+    assert [(i.sheet_row, i.workshop, i.task_number, i.meters) for i in invoices] == [
+        (4, "Солях", "18", 480.0), (6, "Инна", "18", 60.0),
+    ]
+    first, second = invoices
+    assert (first.defect_status, first.claim_no, first.claim_meters, first.claim_amount) == ("брак", "№178", 63.0, 9954.0)
+    assert (first.claim_status, first.compensation_date) == ("пр. отправлена 19.06", date(2026, 6, 25))
+    # zeros are "nothing recorded", and a fabric line's own cells in the same columns are not read
+    assert (second.defect_status, second.claim_no, second.claim_status, second.compensation_date) == ("без брака", None, None, None)
+
+
+def test_a_week_without_the_claim_columns_gives_invoices_without_claim_data():
+    (invoice,) = parse_invoices(WEEK_52, "10.08-16.08 26", date(2026, 8, 10))
+    assert invoice.meters == 3303.9 and invoice.defect_status is None and invoice.claim_no is None
+
+
+def test_both_sources_share_one_read_of_the_sheets():
+    book = FakeBook({"15.06-21.06 26": WEEK_WITH_CLAIMS})
+    receipts = FabricReceiptsSheetSource(book, "book", pause_seconds=0)
+    assert len(receipts.fetch("all")) == 1 and len(receipts.invoices().fetch("all")) == 2
+    assert book.reads == ["15.06-21.06 26"]

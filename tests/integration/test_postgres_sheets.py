@@ -6,10 +6,11 @@ from datetime import date, timedelta
 
 import pytest
 
-from domain.models import CostModelLine, FabricReceiptLine, FabricStockLine, ProductionLine, QuantMultipleLine, WbArticlePricingLine
+from domain.models import CostModelLine, FabricInvoiceLine, FabricReceiptLine, FabricStockLine, ProductionLine, QuantMultipleLine, WbArticlePricingLine
 from infrastructure.persistence.postgres.connection import apply_schema, connect
 from infrastructure.persistence.postgres.repositories_sheets import (
     PostgresCostModelRepository,
+    PostgresFabricInvoiceRepository,
     PostgresFabricReceiptRepository,
     PostgresWbArticlePricingRepository,
     PostgresFabricStockRepository,
@@ -22,7 +23,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 TABLES = ("production_lines production_line_log quant_multiples fabric_stock cost_models wb_article_pricing "
-          "fabric_receipts").split()
+          "fabric_receipts fabric_invoices").split()
 
 
 @pytest.fixture()
@@ -207,6 +208,17 @@ def test_task_fabric_matches_tasks_by_the_number_in_the_text(conn):
     assert rows(conn, "SELECT task_no, pieces, first_received, last_received, meters_received, "
                       "days_fabric_to_ship, days_fabric_to_accept, days_week_to_fabric FROM task_fabric_v") == [
         ("38_00058", 15, date(2026, 9, 17), date(2026, 9, 21), 150, 7, 9, 7),
+    ]
+
+
+def test_fabric_invoices_replace_the_sheet_and_keep_the_claim(conn):
+    repo = PostgresFabricInvoiceRepository(conn)
+    invoice = FabricInvoiceLine("15.06-21.06 26", 4, date(2026, 6, 15), "18", date(2026, 6, 15), "Солях", "док", 480.0,
+                                65000.0, "брак", "№178", 63.0, 9954.0, "пр. отправлена", date(2026, 6, 25))
+    repo.upsert("all", [invoice, FabricInvoiceLine(**{**invoice.__dict__, "sheet_row": 6, "claim_no": None})])
+    repo.upsert("all", [invoice])
+    assert rows(conn, "SELECT sheet_row, claim_no, claim_meters, compensation_date FROM fabric_invoices") == [
+        (4, "№178", 63, date(2026, 6, 25)),
     ]
 
 
