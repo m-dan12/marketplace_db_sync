@@ -193,6 +193,23 @@ def test_fabric_receipts_replace_each_sheet_that_was_read_and_keep_the_others(co
     ]
 
 
+def test_task_fabric_matches_tasks_by_the_number_in_the_text(conn):
+    PostgresFabricReceiptRepository(conn).upsert("all", [
+        receipt(row=5, task_text="неделя 38 №38_00058(MG) цех Солях", received_date=date(2026, 9, 17), meters=100.0),
+        receipt(row=6, task_text="неделя 38 №38_00058(MG) цех Солях", received_date=date(2026, 9, 21), meters=50.0),
+        receipt(row=7, task_text="неделя 38 №38_00059(С) цех Солях", received_date=date(2026, 9, 18)),
+        receipt(row=8, task_text=None, received_date=date(2026, 9, 18)),  # an old sheet: no task number
+    ])
+    done = dict(status="выпущено", status_group="released", week_start=date(2026, 9, 14),
+                order_text="заказ неделя 38 №38_00058(MG) цех Солях", quantity=10,
+                fact_ship_date=date(2026, 9, 28), fact_accept_date=date(2026, 9, 30))
+    PostgresProductionRepository(conn).upsert("all", [line("a", **done), line("b", **{**done, "quantity": 5})])
+    assert rows(conn, "SELECT task_no, pieces, first_received, last_received, meters_received, "
+                      "days_fabric_to_ship, days_fabric_to_accept, days_week_to_fabric FROM task_fabric_v") == [
+        ("38_00058", 15, date(2026, 9, 17), date(2026, 9, 21), 150, 7, 9, 7),
+    ]
+
+
 def test_quant_multiples_upsert_updates_the_multiple(conn):
     repo = PostgresQuantMultipleRepository(conn)
     first = QuantMultipleLine("/6-17-17/", "КПБ Евро", 9.58, 5, 3, None, None, None, 5)

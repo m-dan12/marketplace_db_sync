@@ -610,6 +610,7 @@ CREATE INDEX IF NOT EXISTS ix_production_line_log_row ON production_line_log (ro
 -- Current lines with the kind of work: sewing, a transfer between our warehouse
 -- and a marketplace, or a "подсортировка" (re-sorting stock already made).
 -- (the lead-time views further down depend on it)
+DROP VIEW IF EXISTS task_fabric_v;
 DROP VIEW IF EXISTS ready_wait_v;
 DROP VIEW IF EXISTS shipment_batches_v;
 DROP VIEW IF EXISTS lead_times_by_workshop_v;
@@ -831,6 +832,34 @@ CREATE TABLE IF NOT EXISTS fabric_receipts (
 );
 CREATE INDEX IF NOT EXISTS ix_fabric_receipts_received ON fabric_receipts (received_date);
 CREATE INDEX IF NOT EXISTS ix_fabric_receipts_fabric ON fabric_receipts (fabric_no);
+
+-- Fabric of a task and what came of it. Tasks are matched by the number in the text ('№38_00058',
+-- used since week 32 of 2026 in both the supply-plan sheets and the production table); earlier
+-- weeks have no task number in the supply-plan sheets, so they have no row here. `days_fabric_to_ship`
+-- counts from the last fabric received: before that the workshop could not finish the task.
+CREATE VIEW task_fabric_v AS
+WITH receipts AS (
+    SELECT substring(task_text from '№(\d+_\d+)') AS task_no,
+           MIN(received_date) AS first_received, MAX(received_date) AS last_received,
+           SUM(meters) AS meters_received
+    FROM fabric_receipts
+    WHERE task_text ~ '№\d+_\d+'
+    GROUP BY 1
+),
+tasks AS (
+    SELECT substring(order_text from '№(\d+_\d+)') AS task_no, MIN(workshop) AS workshop, MIN(brand) AS brand,
+           MIN(week_start) AS week_start, SUM(quantity) AS pieces,
+           MAX(fact_ship_date) AS ship_date, MAX(fact_accept_date) AS accept_date
+    FROM production_lines_v
+    WHERE kind = 'sewing' AND order_text ~ '№\d+_\d+'
+    GROUP BY 1
+)
+SELECT t.task_no, t.workshop, t.brand, t.week_start, t.pieces,
+       r.first_received, r.last_received, r.meters_received, t.ship_date, t.accept_date,
+       t.ship_date - r.last_received AS days_fabric_to_ship,
+       t.accept_date - r.last_received AS days_fabric_to_accept,
+       r.last_received - t.week_start AS days_week_to_fabric
+FROM tasks t JOIN receipts r USING (task_no);
 
 -- Marketplace cards with category, brand and title (the stock and order reports have none of them).
 -- The latest state per card; first_seen_at tells when a card appeared.
