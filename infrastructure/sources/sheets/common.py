@@ -9,10 +9,17 @@ class SheetFormatError(Exception):
 
 
 def columns(header: Sequence[Any], required: Sequence[str], sheet: str) -> dict[str, int]:
-    """Column index by exact header name (the first one when a name repeats)."""
+    """Column index by header name (the first one when a name repeats). The exact spelling wins;
+    only a name that is not found as typed is looked up regardless of case ('Ключ' became 'ключ'
+    once), because some sheets hold two columns that differ by case alone ('количество' / 'Количество')."""
     index: dict[str, int] = {}
+    folded: dict[str, int] = {}
     for position, name in enumerate(header):
         index.setdefault(str(name).strip(), position)
+        folded.setdefault(str(name).strip().casefold(), position)
+    for name in required:
+        if name not in index and name.casefold() in folded:
+            index[name] = folded[name.casefold()]
     missing = [name for name in required if name not in index]
     if missing:
         raise SheetFormatError(f"sheet {sheet!r}: columns not found: {missing}")

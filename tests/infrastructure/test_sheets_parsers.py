@@ -234,3 +234,12 @@ def test_wb_pricing_reads_brand_category_cost_and_joins_the_model_key():
     assert (first.nm_id, first.category, first.cost, first.base_price) == (436625557, "Пододеяльники", 319.68, 2289)
     assert first.model_key == "/4-18-26/1 - перкаль 220 с рисунком"
     assert lines[1].base_price is None and lines[1].model_key is None
+
+
+def test_a_column_renamed_only_by_case_is_still_found_and_exact_names_win():
+    from infrastructure.sources.sheets.common import columns
+
+    header = ["Артикул", "количество", "ключ", "Количество"]
+    found = columns(header, ["Артикул", "Ключ", "Количество", "количество"], "t")
+    assert found["Ключ"] == 2  # not found as typed -> by case-insensitive name
+    assert found["Количество"] == 3 and found["количество"] == 1  # exact spelling wins
