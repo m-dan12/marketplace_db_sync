@@ -125,15 +125,17 @@ WEEK_WITH_CLAIMS = [
               c22=9954, c23="пр. отправлена 19.06", c24="25.06.2026"),
     claim_row(["", "", 135.58, "рис 1", 480, 65000, "", "", "1", "ткань", "Сказка"], c19="не брать", c20="не брать"),
     claim_row(["17.06.2026", "Инна", "", "протекс", 60, 9000], c19="без брака", c20=0, c21=0, c22=0, c23=0),
+    claim_row(["18.06.2026", "Инна", "", "протекс", 70, 9000], c21=500, c22=40810182),  # an amount without a claim number
 ]
 
 
 def test_invoices_carry_the_defect_and_claim_cells():
     invoices = parse_invoices(WEEK_WITH_CLAIMS, "15.06-21.06 26", date(2026, 6, 15))
     assert [(i.sheet_row, i.workshop, i.task_number, i.meters) for i in invoices] == [
-        (4, "Солях", "18", 480.0), (6, "Инна", "18", 60.0),
+        (4, "Солях", "18", 480.0), (6, "Инна", "18", 60.0), (7, "Инна", "18", 70.0),
     ]
-    first, second = invoices
+    first, second, unnumbered = invoices
+    assert (unnumbered.claim_no, unnumbered.claim_meters, unnumbered.claim_amount) == (None, None, None)
     assert (first.defect_status, first.claim_no, first.claim_meters, first.claim_amount) == ("брак", "№178", 63.0, 9954.0)
     assert (first.claim_status, first.compensation_date) == ("пр. отправлена 19.06", date(2026, 6, 25))
     # zeros are "nothing recorded", and a fabric line's own cells in the same columns are not read
@@ -148,5 +150,5 @@ def test_a_week_without_the_claim_columns_gives_invoices_without_claim_data():
 def test_both_sources_share_one_read_of_the_sheets():
     book = FakeBook({"15.06-21.06 26": WEEK_WITH_CLAIMS})
     receipts = FabricReceiptsSheetSource(book, "book", pause_seconds=0)
-    assert len(receipts.fetch("all")) == 1 and len(receipts.invoices().fetch("all")) == 2
+    assert len(receipts.fetch("all")) == 1 and len(receipts.invoices().fetch("all")) == 3
     assert book.reads == ["15.06-21.06 26"]

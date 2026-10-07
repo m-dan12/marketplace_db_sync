@@ -126,6 +126,9 @@ def parse_invoices(rows: Sequence[Sequence[Any]], title: str, week_start: date) 
         if kind != "invoice":
             continue
         compensation_cell = cell(row, 24) if has_claims else None
+        # A claim is a numbered one. Amounts without a number belong to other tables of the sheet
+        # (four rows of 40 million in one week), so they are not taken.
+        claim_no = _unless_zero(text(row, 20)) if has_claims else None
         invoices.append(FabricInvoiceLine(
             sheet=title,
             sheet_row=number,
@@ -137,9 +140,9 @@ def parse_invoices(rows: Sequence[Sequence[Any]], title: str, week_start: date) 
             meters=parse_number(cell(row, 4)),
             amount=parse_number(cell(row, 5)),
             defect_status=_unless_zero(text(row, 19)) if has_claims else None,
-            claim_no=_unless_zero(text(row, 20)) if has_claims else None,
-            claim_meters=parse_number(cell(row, 21)) if has_claims else None,
-            claim_amount=parse_number(cell(row, 22)) if has_claims else None,
+            claim_no=claim_no,
+            claim_meters=parse_number(cell(row, 21)) if claim_no else None,
+            claim_amount=parse_number(cell(row, 22)) if claim_no else None,
             claim_status=_unless_zero(text(row, 23)) if has_claims else None,
             compensation_date=parse_dates(compensation_cell, reference=week_start).last if compensation_cell else None,
         ))
