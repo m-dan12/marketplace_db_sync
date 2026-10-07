@@ -13,6 +13,8 @@ _RETRIES = 5
 
 
 class SheetReader(Protocol):
+    def titles(self, spreadsheet_id: str) -> list[str]: ...
+
     def read(self, spreadsheet_id: str, sheet_title: str, cell_range: Optional[str] = None) -> list[list[Any]]: ...
 
 
@@ -22,6 +24,15 @@ class SheetsClient:
             service_account_file, scopes=_SCOPES
         )
         self._service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
+    def titles(self, spreadsheet_id: str) -> list[str]:
+        """Sheet titles in the workbook's own order."""
+        meta = (
+            self._service.spreadsheets()
+            .get(spreadsheetId=spreadsheet_id, fields="sheets.properties.title")
+            .execute(num_retries=_RETRIES)
+        )
+        return [sheet["properties"]["title"] for sheet in meta.get("sheets", [])]
 
     def read(self, spreadsheet_id: str, sheet_title: str, cell_range: Optional[str] = None) -> list[list[Any]]:
         """Raw cell values (numbers stay numbers, dates come as typed text).

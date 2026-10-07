@@ -6,10 +6,11 @@ from datetime import date, timedelta
 
 import pytest
 
-from domain.models import CostModelLine, FabricStockLine, ProductionLine, QuantMultipleLine, WbArticlePricingLine
+from domain.models import CostModelLine, FabricReceiptLine, FabricStockLine, ProductionLine, QuantMultipleLine, WbArticlePricingLine
 from infrastructure.persistence.postgres.connection import apply_schema, connect
 from infrastructure.persistence.postgres.repositories_sheets import (
     PostgresCostModelRepository,
+    PostgresFabricReceiptRepository,
     PostgresWbArticlePricingRepository,
     PostgresFabricStockRepository,
     PostgresProductionRepository,
@@ -20,7 +21,8 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set"
 )
 
-TABLES = "production_lines production_line_log quant_multiples fabric_stock cost_models wb_article_pricing".split()
+TABLES = ("production_lines production_line_log quant_multiples fabric_stock cost_models wb_article_pricing "
+          "fabric_receipts").split()
 
 
 @pytest.fixture()
@@ -171,6 +173,24 @@ def test_ready_wait_splits_sewing_from_waiting_for_pickup(conn):
                              fact_ship_date=date.today() + timedelta(days=3)), line("b")])
     ready = rows(conn, "SELECT row_key, ready_date, days_waiting_pickup FROM ready_wait_v")
     assert ready == [("a", date.today(), 3)]  # b never reached "ready"
+
+
+def receipt(sheet="21.09-27.09 26", row=5, meters=80.0, **overrides) -> FabricReceiptLine:
+    base = dict(sheet=sheet, sheet_row=row, week_start=date(2026, 9, 21), task_number="68", task_text=None,
+                received_date=date(2026, 9, 24), workshop="Солях", supplier_text="юниколор", price=210.95,
+                nomenclature="рис 1", meters=meters, amount=1.0, document=None, fabric_no="3526",
+                fabric_name="Классика", brand="Сказка")
+    return FabricReceiptLine(**{**base, **overrides})
+
+
+def test_fabric_receipts_replace_each_sheet_that_was_read_and_keep_the_others(conn):
+    repo = PostgresFabricReceiptRepository(conn)
+    repo.upsert("all", [receipt(row=5), receipt(row=6), receipt(sheet="14.09-20.09 26", row=5)])
+    # the first sheet was edited: a row went away, another changed; the second sheet was not read
+    repo.upsert("all", [receipt(row=5, meters=99.0)])
+    assert rows(conn, "SELECT sheet, sheet_row, meters FROM fabric_receipts ORDER BY sheet, sheet_row") == [
+        ("14.09-20.09 26", 5, 80), ("21.09-27.09 26", 5, 99),
+    ]
 
 
 def test_quant_multiples_upsert_updates_the_multiple(conn):

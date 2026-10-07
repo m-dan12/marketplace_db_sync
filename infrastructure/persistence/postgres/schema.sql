@@ -805,6 +805,33 @@ ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS model_article TEXT;
 ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
 ALTER TABLE selsup_stocks ADD COLUMN IF NOT EXISTS organization_id BIGINT;
 
+-- Fabric handed to workshops, from the weekly "План поставок" sheets (one line per fabric on an
+-- invoice). `received_date` is the date the invoice came to the workshop: the real start of sewing.
+-- A sheet is replaced as a whole on every read (rows move when the sheet is edited).
+CREATE TABLE IF NOT EXISTS fabric_receipts (
+    id BIGSERIAL PRIMARY KEY,
+    sheet TEXT NOT NULL,
+    sheet_row INT NOT NULL,
+    week_start DATE NOT NULL,
+    task_number TEXT,
+    task_text TEXT,
+    received_date DATE NOT NULL,
+    workshop TEXT,
+    supplier_text TEXT,
+    price NUMERIC,
+    nomenclature TEXT,
+    meters NUMERIC NOT NULL,
+    amount NUMERIC,
+    document TEXT,
+    fabric_no TEXT,
+    fabric_name TEXT,
+    brand TEXT,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (sheet, sheet_row)
+);
+CREATE INDEX IF NOT EXISTS ix_fabric_receipts_received ON fabric_receipts (received_date);
+CREATE INDEX IF NOT EXISTS ix_fabric_receipts_fabric ON fabric_receipts (fabric_no);
+
 -- Marketplace cards with category, brand and title (the stock and order reports have none of them).
 -- The latest state per card; first_seen_at tells when a card appeared.
 CREATE TABLE IF NOT EXISTS product_cards (

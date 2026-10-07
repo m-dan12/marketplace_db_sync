@@ -39,6 +39,7 @@ from infrastructure.sources.ozon.warehouse_stocks import OzonWarehouseStocksSour
 from infrastructure.sources.ozon.stocks import OzonStocksSource
 from infrastructure.sources.selsup.movements import SelsupMovementsSource
 from infrastructure.sources.selsup.stocks import OTHER_ACCOUNT, SelsupStocksSource
+from infrastructure.sources.sheets.supply_plan import FabricReceiptsSheetSource
 from infrastructure.sources.sheets.client import SheetsClient
 from infrastructure.sources.sheets.planning import (
     FABRIC_STOCK_SHEET,
@@ -87,6 +88,7 @@ from infrastructure.persistence.postgres.repositories_sheets import (
     PostgresArticleSpecRepository,
     PostgresCostModelRepository,
     PostgresFabricRepository,
+    PostgresFabricReceiptRepository,
     PostgresFabricStockRepository,
     PostgresProductionRepository,
     PostgresQuantMultipleRepository,
@@ -205,6 +207,10 @@ def _sync_sheets(conn: psycopg.Connection) -> None:
     _run(SyncStocksUseCase(
         "sheet_fabric_stock", SheetTableSource(reader, planning, FABRIC_STOCK_SHEET, parse_fabric_stock),
         PostgresFabricStockRepository(conn), sync_run_repo), "all")
+    # About 90 weekly sheets are read one by one (a pause between them), so this goes after the quick ones.
+    _run(SyncOrdersUseCase(
+        "sheet_fabric_receipts", FabricReceiptsSheetSource(reader, settings.SUPPLY_PLAN_SPREADSHEET_ID),
+        PostgresFabricReceiptRepository(conn), sync_run_repo), "all")
     pricing = settings.PRICING_SPREADSHEET_ID
     _run(SyncStocksUseCase(
         "sheet_cost_models", SheetTableSource(reader, pricing, COST_MODEL_SHEET, parse_cost_models),

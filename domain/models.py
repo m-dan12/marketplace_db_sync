@@ -370,6 +370,28 @@ class FabricStockLine:
 
 
 @dataclass(frozen=True)
+class FabricReceiptLine:
+    """Fabric handed to a workshop for a task: one line of an invoice in a weekly
+    "План поставок" sheet. `received_date` is the "Дата вх," of the invoice."""
+    sheet: str
+    sheet_row: int
+    week_start: date
+    task_number: Optional[str]
+    task_text: Optional[str]
+    received_date: date
+    workshop: Optional[str]
+    supplier_text: Optional[str]  # who and which document the invoice is ("белтекс профтекс УПД №…")
+    price: Optional[float]
+    nomenclature: Optional[str]  # the supplier's name of the design
+    meters: float
+    amount: Optional[float]
+    document: Optional[str]
+    fabric_no: Optional[str]
+    fabric_name: Optional[str]
+    brand: Optional[str]
+
+
+@dataclass(frozen=True)
 class CostModelLine:
     """One row of the margin model: cost and price limits of a product model
     (size key + fabric type, e.g. '/4-18-26/1 - перкаль 220 с рисунком')."""
