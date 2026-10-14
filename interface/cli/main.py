@@ -236,8 +236,7 @@ def _sync_baseline(conn: psycopg.Connection) -> None:
         logger.info("  features_daily: %d rows", feature_rows)
     except Exception:
         conn.rollback()
-        logger.error("  features_daily: FAILED
-%s", traceback.format_exc())
+        logger.error("  features_daily: FAILED\n%s", traceback.format_exc())
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
