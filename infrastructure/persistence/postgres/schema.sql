@@ -1069,3 +1069,13 @@ SELECT 'selsup'::text,
 FROM selsup_inbound_orders o
 JOIN selsup_inbound_items i USING (account, order_id)
 WHERE COALESCE(i.article, i.product_id::text) IS NOT NULL;
+
+-- The view is dropped and re-created on every connection, which wipes its
+-- grants; the read-only consumer (the `priemka` project, role `priemka_app`)
+-- gets SELECT back right here. Skipped on databases where the role does not exist.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'priemka_app') THEN
+        GRANT SELECT ON receiving_events_v TO priemka_app;
+    END IF;
+END $$;

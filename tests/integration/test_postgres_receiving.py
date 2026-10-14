@@ -145,3 +145,15 @@ def test_same_invoice_number_in_two_cabinets_stays_two_orders(conn):
     found = rows(conn, "SELECT account, sku_raw FROM receiving_events_v WHERE receipt_number = '638' ORDER BY account")
 
     assert found == [("skazka", "S/1"), ("timeless", "T/1")]
+
+
+def test_consumer_role_keeps_select_on_the_view_after_the_schema_is_reapplied(conn):
+    """apply_schema пересоздаёт вьюху при каждом подключении — право чтения
+    роли priemka_app не должно пропадать."""
+    if not rows(conn, "SELECT 1 FROM pg_roles WHERE rolname = 'priemka_app'"):
+        pytest.skip("роли priemka_app нет в этом кластере")
+
+    apply_schema(conn)
+    apply_schema(conn)
+
+    assert rows(conn, "SELECT has_table_privilege('priemka_app', 'receiving_events_v', 'SELECT')") == [(True,)]
