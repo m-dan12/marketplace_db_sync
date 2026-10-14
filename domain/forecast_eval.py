@@ -89,3 +89,40 @@ def evaluate(
             by_channel[channel] = metrics((s.actual for s in chosen), (forecast(s, horizon) for s in chosen))
         report[name] = by_channel
     return report
+
+
+# Sales of the last 30 days on the channel, known on the planning date, decide the group. Article-level
+# errors are huge for the long tail and small for the few articles that sell the bulk, and one number
+# for all of them hides both.
+VOLUME_BUCKETS = (
+    ("0", 0, 0),
+    ("1-2", 1, 2),
+    ("3-9", 3, 9),
+    ("10-29", 10, 29),
+    ("30-99", 30, 99),
+    ("100+", 100, None),
+)
+
+
+def volume_bucket(sales_30d: float) -> str:
+    units = int(round(sales_30d))
+    for name, low, high in VOLUME_BUCKETS:
+        if units >= low and (high is None or units <= high):
+            return name
+    return VOLUME_BUCKETS[0][0]
+
+
+def evaluate_by_volume(
+    samples: Iterable[DemandSample], horizon: int, forecasters: Optional[dict[str, Forecaster]] = None
+) -> dict[str, dict[str, Metrics]]:
+    """forecaster name -> volume group -> metrics (only the groups that have samples), in the group order."""
+    items = list(samples)
+    report: dict[str, dict[str, Metrics]] = {}
+    for name, forecast in (forecasters or FORECASTERS).items():
+        by_bucket: dict[str, Metrics] = {}
+        for bucket, _, _ in VOLUME_BUCKETS:
+            chosen = [s for s in items if volume_bucket(s.sales_30d) == bucket]
+            if chosen:
+                by_bucket[bucket] = metrics((s.actual for s in chosen), (forecast(s, horizon) for s in chosen))
+        report[name] = by_bucket
+    return report

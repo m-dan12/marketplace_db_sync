@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 from application.use_cases.baseline_source import BaselineSource
 from domain.article import parse_article
-from domain.forecast_eval import evaluate, split_by_time
+from domain.forecast_eval import evaluate, evaluate_by_volume, split_by_time
 from infrastructure.backfill.drive_archive import ALL_KIND_NAMES, DriveArchiveBackfill, Repos
 from infrastructure.config import accounts as cfg
 from infrastructure.persistence.postgres.connection import apply_schema, connect
@@ -211,6 +211,13 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             for channel, m in by_channel.items():
                 print(f"{name:<16}{channel:<8}{_percent(m.wape):>8}{_percent(m.bias):>8}"
                       f"{m.actual_total:>10.0f}{m.predicted_total:>10.0f}")
+        if args.by_volume:
+            print("\nby the sales of the last 30 days on the channel (pieces)")
+            print(f"{'forecaster':<16}{'group':<8}{'samples':>9}{'WAPE':>8}{'bias':>8}{'sold':>10}{'forecast':>10}")
+            for name, by_bucket in evaluate_by_volume(samples, args.horizon).items():
+                for bucket, m in by_bucket.items():
+                    print(f"{name:<16}{bucket:<8}{m.samples:>9}{_percent(m.wape):>8}{_percent(m.bias):>8}"
+                          f"{m.actual_total:>10.0f}{m.predicted_total:>10.0f}")
         if not args.no_save:
             PostgresModelRunRepository(conn).save(args.horizon, days[0], days[-1], test_from, len(samples), report)
     finally:
@@ -309,5 +316,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     evaluate_parser.add_argument("--from", dest="from_date", default=None, help="first planning date (default: 120 days back)")
     evaluate_parser.add_argument("--to", dest="to_date", default=None, help="last planning date (default: today)")
     evaluate_parser.add_argument("--test-from", default=None, help="score only planning dates from this day on")
+    evaluate_parser.add_argument("--by-volume", action="store_true",
+                                 help="also split the result by the article's recent sales volume")
     evaluate_parser.add_argument("--no-save", action="store_true", help="do not write the result to model_runs")
     evaluate_parser.set_defaults(func=cmd_evaluate)

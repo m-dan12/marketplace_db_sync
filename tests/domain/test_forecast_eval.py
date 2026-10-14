@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from domain.forecast_eval import DemandSample, evaluate, metrics, split_by_time
+from domain.forecast_eval import DemandSample, evaluate, evaluate_by_volume, metrics, split_by_time, volume_bucket
 
 
 def sample(day=date(2026, 9, 1), channel="wb", s7=7.0, s30=60.0, speed=2.0, actual=60.0, article="A"):
@@ -38,3 +38,19 @@ def test_evaluate_compares_forecasters_per_channel():
     assert report["last_30_days"]["wb"].wape == pytest.approx(30 / 90)
     assert report["last_30_days"]["ozon"].wape == pytest.approx(0.0)
     assert report["last_30_days"]["wb"].bias < 0  # it under-forecasts a growing article
+
+
+def test_volume_buckets_cover_every_count_without_gaps():
+    assert [volume_bucket(v) for v in (0, 0.4, 1, 2, 3, 9, 10, 29, 30, 99, 100, 5000)] == [
+        "0", "0", "1-2", "1-2", "3-9", "3-9", "10-29", "10-29", "30-99", "30-99", "100+", "100+",
+    ]
+
+
+def test_the_evaluation_by_volume_separates_the_long_tail_from_the_leaders():
+    samples = [
+        sample(s30=0.0, s7=0.0, speed=0.0, actual=3.0),       # sold nothing before, then sold: missed
+        sample(s30=300.0, s7=70.0, speed=10.0, actual=300.0),  # a leader, forecast right
+    ]
+    report = evaluate_by_volume(samples, horizon=30)["analyst_speed"]
+    assert list(report) == ["0", "100+"]
+    assert report["0"].wape == pytest.approx(1.0) and report["100+"].wape == pytest.approx(0.0)
