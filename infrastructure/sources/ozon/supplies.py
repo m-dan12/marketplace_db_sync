@@ -130,6 +130,7 @@ def parse_order_supply(
     order: dict[str, Any], supply: dict[str, Any], raw_items: list[dict[str, Any]]
 ) -> SupplyBundle:
     order_id = order.get("order_id")
+    order_number = order.get("order_number")  # the number shown in the cabinet; shared by all supplies of an order
     supply_id = supply.get("supply_id")
     storage = supply.get("storage_warehouse") or {}
     drop_off = order.get("drop_off_warehouse") or {}
@@ -165,5 +166,6 @@ def parse_order_supply(
         quantity=total,
         accepted_quantity=None,
         ready_for_sale_quantity=None,
+        receipt_number=str(order_number) if order_number is not None else None,
     )
     return SupplyBundle(supply=supply_line, items=items)

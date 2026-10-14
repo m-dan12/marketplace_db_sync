@@ -140,6 +140,7 @@ def parse_supply_bundle(
         quantity=_num(merged.get("quantity")),
         accepted_quantity=_num(merged.get("acceptedQuantity")),
         ready_for_sale_quantity=_num(merged.get("readyForSaleQuantity")),
+        receipt_number=str(supply_id) if supply_id is not None else None,
     )
     items = tuple(
         SupplyItemLine(

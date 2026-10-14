@@ -19,6 +19,11 @@ SELSUP_MOVEMENTS_WINDOW_DAYS = 3
 SUPPLIES_WINDOW_DAYS = 21
 OZON_SUPPLY_RECENT_PAGES = 2
 
+# Selsup inbound orders (receipts at our own warehouse) created within this many
+# days are re-read each night: an order is posted ("оприходован") days after it is
+# created and its lines change until then. History: `api-backfill selsup_inbound`.
+SELSUP_INBOUND_WINDOW_DAYS = 60
+
 # WB sales funnel: the last N days (ending yesterday) are re-pulled each night
 # because buyouts and cancellations settle with a delay.
 FUNNEL_WINDOW_DAYS = 3
