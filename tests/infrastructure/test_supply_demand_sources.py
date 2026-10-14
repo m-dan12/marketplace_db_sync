@@ -307,3 +307,27 @@ def test_ozon_warehouse_stocks_page_and_skip_rows_without_offer_or_warehouse(fak
     lines = ozon_wh.OzonWarehouseStocksSource("c", "k").fetch("skazka")
     assert len(lines) == 1000
     assert (lines[0].free_to_sell, lines[0].reserved, lines[0].promised) == (2, 3, 1)
+
+
+# --- receipt_number: the number the workshops write into their sheets ---------
+
+def test_wb_supply_receipt_number_is_the_supply_id():
+    bundle = wb_supplies.parse_supply_bundle(WB_LISTED, WB_DETAIL, WB_GOODS)
+    assert bundle.supply.receipt_number == "41488662"
+
+
+def test_wb_supply_known_only_by_preorder_has_no_receipt_number():
+    bundle = wb_supplies.parse_supply_bundle({"supplyID": None, "preorderID": 7, "statusID": 1}, {}, [])
+    assert bundle.supply.receipt_number is None
+
+
+def test_ozon_supply_receipt_number_is_the_order_number_shared_by_its_supplies():
+    order = {**OZON_ORDER, "order_number": "2000068238169"}
+    bundle = ozon_supplies.parse_order_supply(order, order["supplies"][0], OZON_ITEMS)
+    assert bundle.supply.receipt_number == "2000068238169"
+    assert bundle.supply.order_id == "131649555"  # the internal id stays separate
+
+
+def test_ozon_supply_without_order_number_has_no_receipt_number():
+    bundle = ozon_supplies.parse_order_supply(OZON_ORDER, OZON_ORDER["supplies"][0], OZON_ITEMS)
+    assert bundle.supply.receipt_number is None

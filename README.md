@@ -179,3 +179,23 @@ TEST_DATABASE_URL=postgresql://user@localhost/mdb_test pytest
 Цены, финансовые отчёты, реклама, новости, приёмки/отгрузки SelSup (домен
 проекта `priemka`), Yandex Market, деплой на боевой сервер и подключение к
 боевому Postgres — см. `TASK.md` §9.
+
+## Приёмки (receipts)
+
+Фактические приёмки товара, с которыми сверяются листы `приемка` недельных
+таблиц цехов (проект `priemka` — читает, не пишет сюда):
+
+- `supplies.receipt_number` — витринный номер: WB `supplyID`, Ozon `order_number`
+  (внутренний `order_id` хранится отдельно);
+- `selsup_inbound_orders` / `selsup_inbound_items` — приёмки SelSup на
+  собственный склад (`sync selsup`, источник `selsup_inbound`; окно
+  `SELSUP_INBOUND_WINDOW_DAYS`, история — `api-backfill selsup_inbound --from`).
+  `invoiceNumber` НЕ уникален даже внутри кабинета; `introduced_quantity` = 0, пока
+  заказ не оприходован в SelSup;
+- `receiving_events_v` — одна строка = одна принятая позиция из всех трёх
+  источников в одной форме. Что считается фактом, решается во вьюхе: WB только
+  `accepted` (статус 6 даёт `acceptedQuantity = 0` — это не недостача),
+  Ozon только `COMPLETED` (принятого количества API не отдаёт — берётся заявленное),
+  SelSup — все INCOME-заказы. Ключ: `(source, account, external_supply_id,
+  external_line_id)`.
+

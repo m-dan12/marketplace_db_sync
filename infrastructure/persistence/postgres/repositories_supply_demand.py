@@ -27,8 +27,9 @@ _SUPPLY_UPSERT_SQL = """
     INSERT INTO supplies (
         marketplace, account, supply_key, order_id, created_at, planned_date, fact_date,
         updated_at, status, warehouse_name, actual_warehouse_name, transit_warehouse_name,
-        is_crossdock, quantity, accepted_quantity, ready_for_sale_quantity, fetched_at
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        is_crossdock, quantity, accepted_quantity, ready_for_sale_quantity, fetched_at,
+        receipt_number
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (marketplace, account, supply_key) DO UPDATE SET
         order_id = EXCLUDED.order_id,
         created_at = COALESCE(EXCLUDED.created_at, supplies.created_at),
@@ -43,7 +44,8 @@ _SUPPLY_UPSERT_SQL = """
         quantity = EXCLUDED.quantity,
         accepted_quantity = EXCLUDED.accepted_quantity,
         ready_for_sale_quantity = EXCLUDED.ready_for_sale_quantity,
-        fetched_at = EXCLUDED.fetched_at
+        fetched_at = EXCLUDED.fetched_at,
+        receipt_number = COALESCE(EXCLUDED.receipt_number, supplies.receipt_number)
 """
 
 _SUPPLY_ITEM_INSERT_SQL = """
@@ -79,7 +81,7 @@ class PostgresSupplyRepository:
                         s.marketplace, account, s.supply_key, s.order_id, s.created_at, s.planned_date,
                         s.fact_date, s.updated_at, s.status, s.warehouse_name, s.actual_warehouse_name,
                         s.transit_warehouse_name, s.is_crossdock, s.quantity, s.accepted_quantity,
-                        s.ready_for_sale_quantity, fetched_at,
+                        s.ready_for_sale_quantity, fetched_at, s.receipt_number,
                     ),
                 )
                 cur.execute(

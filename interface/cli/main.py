@@ -38,6 +38,7 @@ from infrastructure.sources.ozon.promotions import OzonActionsSource
 from infrastructure.sources.ozon.supplies import OzonSuppliesSource
 from infrastructure.sources.ozon.warehouse_stocks import OzonWarehouseStocksSource
 from infrastructure.sources.ozon.stocks import OzonStocksSource
+from infrastructure.sources.selsup.inbound import SelsupInboundSource
 from infrastructure.sources.selsup.movements import SelsupMovementsSource
 from infrastructure.sources.selsup.stocks import OTHER_ACCOUNT, SelsupStocksSource
 from infrastructure.sources.sheets.supply_plan import FabricReceiptsSheetSource
@@ -71,6 +72,9 @@ from infrastructure.sources.wb.stocks import WBStocksSource
 from infrastructure.persistence.postgres.repositories_baseline import (
     PostgresBaselineFactsReader,
     PostgresBaselineRepository,
+)
+from infrastructure.persistence.postgres.repositories_receiving import (
+    PostgresSelsupInboundRepository,
 )
 from infrastructure.persistence.postgres.repositories_ml import (
     PostgresProductCardRepository,
@@ -182,6 +186,12 @@ def _sync_selsup(conn: psycopg.Connection, accounts: list[str]) -> None:
     # under the pseudo-account 'all' (accounts are resolved in the DB view).
     movement_repo = PostgresSelsupMovementRepository(conn)
     _run(SyncOrdersUseCase("selsup_movements", SelsupMovementsSource(token), movement_repo, sync_run_repo), "all")
+    # Receipts at our own warehouse (invoiceNumber, supplier, received quantity per line):
+    # the cabinet is chosen by organization id in the request, so one run per account.
+    inbound_source = SelsupInboundSource(token, cfg.SELSUP_ORGANIZATION_IDS)
+    inbound_repo = PostgresSelsupInboundRepository(conn)
+    for account in accounts:
+        _run(SyncOrdersUseCase("selsup_inbound", inbound_source, inbound_repo, sync_run_repo), account)
 
 
 def _sync_sheets(conn: psycopg.Connection) -> None:

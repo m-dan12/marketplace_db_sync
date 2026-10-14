@@ -195,6 +195,9 @@ class SupplyLine:
     quantity: Optional[float]
     accepted_quantity: Optional[float]
     ready_for_sale_quantity: Optional[float]
+    # The human-readable receipt number the workshops and logisticians use:
+    # WB supplyID, Ozon order_number. NULL when the API does not give one.
+    receipt_number: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -454,3 +457,33 @@ class ProductCardLine:
     brand: Optional[str]  # WB only: Ozon's brand is an attribute that needs a separate call
     category: Optional[str]  # WB subjectName / Ozon 'category > type'
     category_id: Optional[int]  # WB subjectID / Ozon description_category_id
+
+
+@dataclass(frozen=True)
+class SelsupInboundOrderLine:
+    """A Selsup inbound order (receipt at our own warehouse), header only."""
+    order_id: int
+    receipt_number: Optional[str]  # invoiceNumber — NOT unique, even inside a cabinet
+    order_name: Optional[str]
+    supplier_id: Optional[str]
+    supplier_name: Optional[str]
+    status: Optional[str]  # CREATED | FINISHED | ...
+    warehouse_id: Optional[str]
+    created_at: Optional[datetime]
+    closed_at: Optional[datetime]
+
+
+@dataclass(frozen=True)
+class SelsupInboundItemLine:
+    line_id: str
+    product_id: Optional[int]
+    article: Optional[str]  # view.wbArticle; None when the product has no card
+    barcode: Optional[str]
+    quantity: Optional[float]  # declared
+    introduced_quantity: float  # received (0 until the order is posted in Selsup)
+
+
+@dataclass(frozen=True)
+class SelsupInboundBundle:
+    order: SelsupInboundOrderLine
+    items: tuple[SelsupInboundItemLine, ...]

@@ -955,3 +955,117 @@ CREATE TABLE IF NOT EXISTS model_runs (
     samples INT NOT NULL,
     results JSONB NOT NULL  -- forecaster -> channel -> {samples, wape, bias, ...}
 );
+
+-- ===========================================================================
+-- Receipts (приёмки) — the facts the workshop sheets are reconciled against.
+-- Consumed by the `priemka` project, which keeps its own state in the
+-- `priemka` schema; nothing here depends on it.
+-- ===========================================================================
+
+-- The human-readable receipt number: WB supplyID, Ozon order_number.
+ALTER TABLE supplies ADD COLUMN IF NOT EXISTS receipt_number TEXT;
+CREATE INDEX IF NOT EXISTS ix_supplies_receipt_number ON supplies (receipt_number);
+
+-- Selsup inbound orders: receipts of goods at our own warehouse.
+CREATE TABLE IF NOT EXISTS selsup_inbound_orders (
+    id BIGSERIAL PRIMARY KEY,
+    account TEXT NOT NULL,
+    order_id BIGINT NOT NULL,
+    receipt_number TEXT,  -- invoiceNumber; NOT unique, even inside one account
+    order_name TEXT,
+    supplier_id TEXT,
+    supplier_name TEXT,
+    status TEXT,  -- CREATED | FINISHED | ...
+    warehouse_id TEXT,
+    created_at TIMESTAMPTZ,
+    closed_at TIMESTAMPTZ,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (account, order_id)
+);
+CREATE INDEX IF NOT EXISTS ix_selsup_inbound_orders_receipt ON selsup_inbound_orders (receipt_number);
+
+CREATE TABLE IF NOT EXISTS selsup_inbound_items (
+    id BIGSERIAL PRIMARY KEY,
+    account TEXT NOT NULL,
+    order_id BIGINT NOT NULL,
+    line_id TEXT NOT NULL,
+    product_id BIGINT,
+    article TEXT,  -- view.wbArticle = our seller's article; NULL when the product has no card
+    barcode TEXT,
+    quantity NUMERIC,  -- declared
+    introduced_quantity NUMERIC NOT NULL DEFAULT 0,  -- received; 0 until the order is posted
+    fetched_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (account, order_id, line_id)
+);
+CREATE INDEX IF NOT EXISTS ix_selsup_inbound_items_order ON selsup_inbound_items (account, order_id);
+
+-- One row = one received line of a receipt, from all three sources, in one shape.
+-- What counts as a fact is decided here, one condition per source:
+--   WB     — status 'accepted' only (status 6 "unloaded at the gate" always has
+--            acceptedQuantity = 0: it is not counted yet, not a shortage);
+--   Ozon   — state COMPLETED only; the API gives no received quantity, the
+--            declared one is taken (known limitation);
+--   Selsup — every INCOME order; received = introduced_quantity (0 until posted).
+-- (source, account, external_supply_id, external_line_id) is a stable natural key.
+DROP VIEW IF EXISTS receiving_events_v;
+CREATE VIEW receiving_events_v AS
+SELECT 'wb'::text AS source,
+       s.account,
+       s.supply_key AS external_supply_id,
+       i.item_key AS external_line_id,
+       i.article AS sku_raw,
+       i.barcode,
+       COALESCE(s.actual_warehouse_name, s.warehouse_name) AS warehouse_raw,
+       i.quantity AS quantity_declared,
+       COALESCE(i.accepted_quantity, 0) AS quantity_accepted,
+       'pcs'::text AS unit,
+       (s.fact_date AT TIME ZONE 'Europe/Moscow')::date AS event_date,
+       s.status AS status_raw,
+       COALESCE(s.receipt_number, CASE WHEN s.supply_key ~ '^s[0-9]+$' THEN substr(s.supply_key, 2) END)
+           AS receipt_number,
+       NULL::text AS supplier_id,
+       NULL::text AS supplier_name,
+       NULL::text AS order_name
+FROM supplies s
+JOIN supply_items i USING (marketplace, account, supply_key)
+WHERE s.marketplace = 'wb' AND s.status = 'accepted' AND i.article IS NOT NULL
+UNION ALL
+SELECT 'ozon'::text,
+       s.account,
+       s.supply_key,
+       i.item_key,
+       i.article,
+       i.barcode,
+       COALESCE(s.actual_warehouse_name, s.warehouse_name),
+       i.quantity,
+       COALESCE(i.quantity, 0),
+       'pcs'::text,
+       (s.updated_at AT TIME ZONE 'Europe/Moscow')::date,
+       s.status,
+       COALESCE(s.receipt_number, CASE WHEN s.supply_key ~ '^s[0-9]+$' THEN substr(s.supply_key, 2) END),
+       NULL::text,
+       NULL::text,
+       NULL::text
+FROM supplies s
+JOIN supply_items i USING (marketplace, account, supply_key)
+WHERE s.marketplace = 'ozon' AND s.status = 'COMPLETED' AND i.article IS NOT NULL
+UNION ALL
+SELECT 'selsup'::text,
+       o.account,
+       o.order_id::text,
+       i.line_id,
+       COALESCE(i.article, i.product_id::text),
+       i.barcode,
+       o.warehouse_id,
+       i.quantity,
+       i.introduced_quantity,
+       'pcs'::text,
+       (COALESCE(o.closed_at, o.created_at) AT TIME ZONE 'Europe/Moscow')::date,
+       o.status,
+       o.receipt_number,
+       o.supplier_id,
+       o.supplier_name,
+       o.order_name
+FROM selsup_inbound_orders o
+JOIN selsup_inbound_items i USING (account, order_id)
+WHERE COALESCE(i.article, i.product_id::text) IS NOT NULL;

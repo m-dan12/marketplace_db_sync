@@ -44,7 +44,11 @@ from infrastructure.persistence.postgres.repositories_supply_demand import (
     PostgresWbFunnelRepository,
 )
 from infrastructure.sources.drive.client import DriveClient
+from infrastructure.persistence.postgres.repositories_receiving import (
+    PostgresSelsupInboundRepository,
+)
 from infrastructure.sources.ozon.supplies import OzonSuppliesSource
+from infrastructure.sources.selsup.inbound import SelsupInboundSource
 from infrastructure.sources.wb.funnel import WBFunnelSource
 from infrastructure.sources.wb.promotions import WBPromotionsSource
 from infrastructure.sources.wb.supplies import WBSuppliesSource
@@ -224,7 +228,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         conn.close()
 
 
-API_BACKFILL_KINDS = ("wb_supplies", "ozon_supplies", "wb_promotions", "wb_funnel")
+API_BACKFILL_KINDS = ("wb_supplies", "ozon_supplies", "selsup_inbound", "wb_promotions", "wb_funnel")
 
 
 def _account_credentials(account: str):
@@ -254,6 +258,14 @@ def cmd_api_backfill(args: argparse.Namespace) -> None:
                 _, (client_id, api_key) = _account_credentials(account)
                 bundles = OzonSuppliesSource(client_id, api_key, full=True).fetch(account)
                 logger.info("ozon_supplies [%s]: %d supplies", account, PostgresSupplyRepository(conn).upsert(account, bundles))
+            elif args.kind == "selsup_inbound":
+                bundles = SelsupInboundSource(
+                    cfg.resolve_selsup_token(), cfg.SELSUP_ORGANIZATION_IDS, since=start
+                ).fetch(account)
+                logger.info(
+                    "selsup_inbound [%s]: %d orders",
+                    account, PostgresSelsupInboundRepository(conn).upsert(account, bundles),
+                )
             elif args.kind == "wb_promotions":
                 api_key, _ = _account_credentials(account)
                 bundles = WBPromotionsSource(api_key, items_from=start).fetch(account)
