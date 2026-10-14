@@ -610,6 +610,7 @@ CREATE INDEX IF NOT EXISTS ix_production_line_log_row ON production_line_log (ro
 -- Current lines with the kind of work: sewing, a transfer between our warehouse
 -- and a marketplace, or a "подсортировка" (re-sorting stock already made).
 -- (the lead-time views further down depend on it)
+DROP VIEW IF EXISTS demand_outcome_v;
 DROP VIEW IF EXISTS task_fabric_v;
 DROP VIEW IF EXISTS ready_wait_v;
 DROP VIEW IF EXISTS shipment_batches_v;
@@ -899,4 +900,58 @@ CREATE TABLE IF NOT EXISTS product_cards (
     first_seen_at TIMESTAMPTZ NOT NULL,
     fetched_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (marketplace, account, article)
+);
+
+-- ---------------------------------------------------------------------------
+-- Stage 5: features, what happened afterwards, and the quality of forecasts.
+-- ---------------------------------------------------------------------------
+
+-- One row per article and planning date: what the model may know on `as_of`. Built from the
+-- analyst's formula inputs of the same date plus cost, brand, prices and calendar. Production
+-- in progress of past dates is the CURRENT state of the production table (the sheet keeps no
+-- history before 2026-10-03), so back-filled rows lean on it: treat `in_prod_*` of old dates with care.
+CREATE TABLE IF NOT EXISTS features_daily (
+    as_of DATE NOT NULL,
+    article TEXT NOT NULL,
+    category TEXT,
+    brand TEXT,
+    quant NUMERIC,
+    cost NUMERIC,
+    wb_price NUMERIC,
+    ozon_price NUMERIC,
+    wb_s7 NUMERIC, wb_s30 NUMERIC, wb_sp30 NUMERIC,
+    ozon_s7 NUMERIC, ozon_s30 NUMERIC, ozon_sp30 NUMERIC,
+    wb_stock NUMERIC, ozon_stock NUMERIC, stock_fbs NUMERIC, stock_kvant NUMERIC,
+    in_prod_wb NUMERIC, in_prod_ozon NUMERIC, in_prod_sklad NUMERIC, in_prod_kvant NUMERIC,
+    wb_max_speed NUMERIC, ozon_max_speed NUMERIC,
+    baseline_need NUMERIC,
+    dow INT, month INT, iso_week INT,
+    computed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (as_of, article)
+);
+
+-- Units ordered from `as_of` over the next 7 / 30 days. `complete_*` is false while the window
+-- reaches beyond the last order day we have: such rows must not be used as labels yet.
+CREATE VIEW demand_outcome_v AS
+SELECT f.as_of, f.article,
+       COALESCE(SUM(o.units) FILTER (WHERE o.marketplace = 'wb' AND o.day < f.as_of + 7), 0) AS wb_next_7,
+       COALESCE(SUM(o.units) FILTER (WHERE o.marketplace = 'wb'), 0) AS wb_next_30,
+       COALESCE(SUM(o.units) FILTER (WHERE o.marketplace = 'ozon' AND o.day < f.as_of + 7), 0) AS ozon_next_7,
+       COALESCE(SUM(o.units) FILTER (WHERE o.marketplace = 'ozon'), 0) AS ozon_next_30,
+       f.as_of + 7 <= (SELECT MAX(day) FROM orders_daily) + 1 AS complete_7,
+       f.as_of + 30 <= (SELECT MAX(day) FROM orders_daily) + 1 AS complete_30
+FROM features_daily f
+LEFT JOIN orders_daily o ON o.article = f.article AND o.day >= f.as_of AND o.day < f.as_of + 30
+GROUP BY f.as_of, f.article;
+
+-- Every evaluation of a forecaster: when, on which dates, how good.
+CREATE TABLE IF NOT EXISTS model_runs (
+    id BIGSERIAL PRIMARY KEY,
+    run_at TIMESTAMPTZ NOT NULL,
+    horizon_days INT NOT NULL,
+    as_of_from DATE NOT NULL,
+    as_of_to DATE NOT NULL,
+    test_from DATE,
+    samples INT NOT NULL,
+    results JSONB NOT NULL  -- forecaster -> channel -> {samples, wape, bias, ...}
 );

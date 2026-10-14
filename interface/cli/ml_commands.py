@@ -7,7 +7,9 @@ import logging
 import os
 from datetime import date, timedelta
 
+from application.use_cases.baseline_source import BaselineSource
 from domain.article import parse_article
+from domain.forecast_eval import evaluate, split_by_time
 from infrastructure.backfill.drive_archive import ALL_KIND_NAMES, DriveArchiveBackfill, Repos
 from infrastructure.config import accounts as cfg
 from infrastructure.persistence.postgres.connection import apply_schema, connect
@@ -18,6 +20,14 @@ from infrastructure.persistence.postgres.repositories import (
     PostgresWbOrderRepository,
     PostgresWbSaleRepository,
     PostgresWbStockRepository,
+)
+from infrastructure.persistence.postgres.repositories_baseline import (
+    PostgresBaselineFactsReader,
+    PostgresBaselineRepository,
+)
+from infrastructure.persistence.postgres.repositories_features import (
+    PostgresFeatureRepository,
+    PostgresModelRunRepository,
 )
 from infrastructure.persistence.postgres.repositories_ml import (
     PostgresArticleRepository,
@@ -146,6 +156,67 @@ def cmd_coverage(args: argparse.Namespace) -> None:
         conn.close()
 
 
+def build_features(conn, as_of: date, force_baseline: bool = False) -> tuple[int, int]:
+    """Formula inputs of `as_of` (computed when missing) and the feature rows built from them.
+    For a past date the sales windows are exact, stock comes from the newest snapshot not after it,
+    and production in progress is the current state of the production table."""
+    features = PostgresFeatureRepository(conn)
+    baseline_rows = 0
+    if force_baseline or not features.has_baseline(as_of):
+        rows = BaselineSource(PostgresBaselineFactsReader(conn), lambda: as_of).fetch("all")
+        baseline_rows = PostgresBaselineRepository(conn).save_snapshot("all", as_of, rows)
+    return baseline_rows, features.build(as_of)
+
+
+def cmd_features(args: argparse.Namespace) -> None:
+    end = date.fromisoformat(args.to_date) if args.to_date else date.today()
+    start = date.fromisoformat(args.from_date) if args.from_date else end
+    conn = connect(os.environ["DATABASE_URL"])
+    try:
+        apply_schema(conn)
+        day = start
+        while day <= end:
+            baseline_rows, feature_rows = build_features(conn, day, force_baseline=args.force)
+            print(f"{day}: baseline rows {baseline_rows or 'kept'}, feature rows {feature_rows}")
+            day += timedelta(days=1)
+    finally:
+        conn.close()
+
+
+def _percent(value) -> str:
+    return "   n/a" if value is None else f"{value * 100:5.1f}%"
+
+
+def cmd_evaluate(args: argparse.Namespace) -> None:
+    """Rule-based forecasters (the analyst's speed and plain recent sales) against what was ordered."""
+    conn = connect(os.environ["DATABASE_URL"])
+    try:
+        apply_schema(conn)
+        end = date.fromisoformat(args.to_date) if args.to_date else date.today()
+        start = date.fromisoformat(args.from_date) if args.from_date else end - timedelta(days=120)
+        test_from = date.fromisoformat(args.test_from) if args.test_from else None
+        samples = PostgresFeatureRepository(conn).samples(args.horizon, start, end)
+        if test_from:
+            samples = split_by_time(samples, test_from, args.horizon)[1]
+        if not samples:
+            print("no samples: features_daily has no complete outcome window in this range "
+                  "(run `features --from ... --to ...` first; the window must be over)")
+            return
+        report = evaluate(samples, args.horizon)
+        days = sorted({s.as_of for s in samples})
+        print(f"horizon {args.horizon} days, planning dates {days[0]} .. {days[-1]} ({len(days)}), "
+              f"{len(samples)} article-channel samples")
+        print(f"{'forecaster':<16}{'channel':<8}{'WAPE':>8}{'bias':>8}{'sold':>10}{'forecast':>10}")
+        for name, by_channel in report.items():
+            for channel, m in by_channel.items():
+                print(f"{name:<16}{channel:<8}{_percent(m.wape):>8}{_percent(m.bias):>8}"
+                      f"{m.actual_total:>10.0f}{m.predicted_total:>10.0f}")
+        if not args.no_save:
+            PostgresModelRunRepository(conn).save(args.horizon, days[0], days[-1], test_from, len(samples), report)
+    finally:
+        conn.close()
+
+
 API_BACKFILL_KINDS = ("wb_supplies", "ozon_supplies", "wb_promotions", "wb_funnel")
 
 
@@ -226,3 +297,17 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     coverage_parser = sub.add_parser("coverage", help="Show the date range and row count per table")
     coverage_parser.set_defaults(func=cmd_coverage)
+
+    features_parser = sub.add_parser("features", help="Build feature rows (and the formula inputs) for a range of dates")
+    features_parser.add_argument("--from", dest="from_date", default=None, help="first date, YYYY-MM-DD (default: today)")
+    features_parser.add_argument("--to", dest="to_date", default=None, help="last date (default: today)")
+    features_parser.add_argument("--force", action="store_true", help="recompute the formula inputs of dates that have them")
+    features_parser.set_defaults(func=cmd_features)
+
+    evaluate_parser = sub.add_parser("evaluate", help="Score forecasters against ordered units on past dates")
+    evaluate_parser.add_argument("--horizon", type=int, choices=[7, 30], default=30)
+    evaluate_parser.add_argument("--from", dest="from_date", default=None, help="first planning date (default: 120 days back)")
+    evaluate_parser.add_argument("--to", dest="to_date", default=None, help="last planning date (default: today)")
+    evaluate_parser.add_argument("--test-from", default=None, help="score only planning dates from this day on")
+    evaluate_parser.add_argument("--no-save", action="store_true", help="do not write the result to model_runs")
+    evaluate_parser.set_defaults(func=cmd_evaluate)

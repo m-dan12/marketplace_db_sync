@@ -10,6 +10,7 @@ import argparse
 import logging
 import os
 import traceback
+from datetime import date
 
 import psycopg
 from dotenv import load_dotenv
@@ -230,6 +231,13 @@ def _sync_baseline(conn: psycopg.Connection) -> None:
     _run(SyncStocksUseCase(
         "baseline", BaselineSource(PostgresBaselineFactsReader(conn)),
         PostgresBaselineRepository(conn), PostgresSyncRunRepository(conn)), "all")
+    try:
+        _, feature_rows = ml_commands.build_features(conn, date.today())
+        logger.info("  features_daily: %d rows", feature_rows)
+    except Exception:
+        conn.rollback()
+        logger.error("  features_daily: FAILED
+%s", traceback.format_exc())
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
