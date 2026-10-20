@@ -313,6 +313,14 @@ class PostgresSyncRunRepository:
         return row[0]
 
     def finish(self, run_id: int, *, status: str, records_fetched: int, error_message: str | None) -> None:
+        if status == "error":
+            # The failed step may have left the shared connection in an aborted transaction
+            # (a constraint violation in the middle of a batch). Without this rollback the
+            # UPDATE below fails too, the run stays 'running' forever, and every later
+            # step on the same connection fails in the same second (seen 17-19.10.2026:
+            # one movement row without sku_id took down selsup_inbound, the sheets and
+            # the baseline with it).
+            self._conn.rollback()
         with self._conn.cursor() as cur:
             cur.execute(
                 "UPDATE sync_runs SET finished_at = %s, status = %s, records_fetched = %s, "

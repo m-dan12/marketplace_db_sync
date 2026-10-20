@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -11,6 +12,8 @@ from infrastructure.config.settings import SELSUP_MOVEMENTS_WINDOW_DAYS
 from infrastructure.sources.parsing import parse_datetime
 from infrastructure.sources.selsup.stocks import SELSUP_BASE
 from shared.http_retry import request_with_retry
+
+logger = logging.getLogger(__name__)
 
 INCOME_OPS = ("PUT", "CONFIRMED", "FOUND")
 OUTCOME_OPS = ("TAKE", "TAKE_MARKETPLACE", "SALE_PRODUCT")
@@ -53,7 +56,12 @@ class SelsupMovementsSource:
                         raw_rows.append(row)
             sku_ids = {(r.get("item") or {}).get("skuId") for r in raw_rows}
             info = self._product_info(client, headers, {s for s in sku_ids if s})
-        return [parse_movement(r, info) for r in raw_rows]
+        usable = [r for r in raw_rows if (r.get("item") or {}).get("skuId") is not None]
+        if len(usable) != len(raw_rows):
+            # `selsup_movements.sku_id` is NOT NULL; a movement without a sku (seen
+            # 16.10.2026: PUT on an INCOME order) cannot be attributed to an article anyway.
+            logger.warning("selsup movements: %d rows without skuId skipped", len(raw_rows) - len(usable))
+        return [parse_movement(r, info) for r in usable]
 
     def _rows_since(
         self, client: httpx.Client, headers: dict[str, str], op: str, since: date
